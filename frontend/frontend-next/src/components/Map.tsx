@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+// ============================================
+// ИМПОРТЫ
+// ============================================
+
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,11 +12,14 @@ import {
   Popup,
   useMapEvents,
 } from "react-leaflet";
-import { Icon, DivIcon } from "leaflet";
+import { DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useAuthStore } from "@/store/authStore";
 
-// Типы
+// ============================================
+// ТИПЫ
+// ============================================
+
 export interface Place {
   id?: number;
   title: string;
@@ -24,161 +31,257 @@ export interface Place {
   createdAt?: string;
 }
 
-// Кастомная иконка маркера (больше размер)
-const createCustomIcon = (isNew: boolean = false) => {
-  return new DivIcon({
-    className: "custom-marker",
-    html: `
-      <div style="
-        width: ${isNew ? "50px" : "40px"};
-        height: ${isNew ? "50px" : "40px"};
-        background: ${isNew ? "#ef4444" : "#22c55e"};
-        border: 3px solid white;
-        border-radius: 50% 50% 50% 0;
-        transform: rotate(-45deg);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-      ">
-        <span style="transform: rotate(45deg);">🍄</span>
-      </div>
-    `,
-    iconSize: [isNew ? 50 : 40, isNew ? 50 : 40],
-    iconAnchor: [isNew ? 25 : 20, isNew ? 50 : 40],
-    popupAnchor: [0, -40],
-  });
-};
+// ============================================
+// ИКОНКИ (создаются ОДИН РАЗ)
+// ============================================
 
-// Компонент для добавления маркера
-function LocationMarker({
-  onAddPlace,
+// 🔴 Красная иконка 50px для НОВОГО места
+const newPlaceIcon = new DivIcon({
+  className: "custom-marker",
+  html: `
+    <div style="
+      width: 50px;
+      height: 50px;
+      background: #ef4444;
+      border: 3px solid white;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+    ">
+      <span style="transform: rotate(45deg);">🍄</span>
+    </div>
+  `,
+  iconSize: [50, 50],
+  iconAnchor: [25, 50],
+  popupAnchor: [0, -55],
+});
+
+// 🟢 Зелёная иконка 40px для существующих мест
+const existingPlaceIcon = new DivIcon({
+  className: "custom-marker",
+  html: `
+    <div style="
+      width: 40px;
+      height: 40px;
+      background: #22c55e;
+      border: 3px solid white;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+    ">
+      <span style="transform: rotate(45deg);">🍄</span>
+    </div>
+  `,
+  iconSize: [40, 40],
+  iconAnchor: [20, 40],
+  popupAnchor: [0, -45],
+});
+
+// ============================================
+// КОМПОНЕНТ: Форма в попапе (изолирована от маркера)
+// ============================================
+
+const PopupForm = memo(function PopupForm({
+  lat,
+  lng,
+  onSubmit,
+  onCancel,
 }: {
-  onAddPlace: (place: Place) => void;
+  lat: number;
+  lng: number;
+  onSubmit: (data: any) => void;
+  onCancel: () => void;
 }) {
-  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    address: "",
-    imageUrl: "",
-  });
+  // Состояния полей формы (изолированы от маркера!)
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [address, setAddress] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [isLoadingAddress, setIsLoadingAddress] = useState(false);
 
-  const map = useMapEvents({
-    click(e) {
-      setPosition(e.latlng);
-      // Сброс формы при новом клике
-      setFormData({ title: "", description: "", address: "", imageUrl: "" });
-    },
-  });
+  // Геокодирование при открытии
+  useEffect(() => {
+    setIsLoadingAddress(true);
+    // 🆕 Исправлено: убран пробел в URL
+    fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.display_name) {
+          const parts = data.display_name
+            .split(",")
+            .map((s: string) => s.trim());
+          const region = parts.find((p: string) => p.includes("область"));
+          const district = parts.find((p: string) => p.includes("район"));
+          const city = parts.find(
+            (p: string) =>
+              p.includes("город") ||
+              p.includes("посёлок") ||
+              p.includes("агрогородок"),
+          );
 
-  const handleSubmit = async (e: React.FormEvent) => {
+          const formatted = [region, district, city]
+            .filter(Boolean)
+            .slice(0, 3)
+            .join(", ");
+
+          setAddress(formatted || parts.slice(0, 2).join(", "));
+        }
+      })
+      .catch(console.error)
+      .finally(() => setIsLoadingAddress(false));
+  }, [lat, lng]);
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!position) return;
-
-    const place: Place = {
-      title: formData.title,
-      description: formData.description,
-      latitude: position.lat,
-      longitude: position.lng,
-      address: formData.address,
-      imageUrl: formData.imageUrl,
-    };
-
-    await onAddPlace(place);
-    setPosition(null); // Закрыть форму после отправки
+    onSubmit({ title, description, address, imageUrl, lat, lng });
   };
 
-  // Обработчик изменения полей с сохранением позиции
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
+  return (
+    <form onSubmit={handleSubmit} className="w-72 p-2">
+      <h3 className="font-bold mb-3 text-lg">🍄 Новое место</h3>
 
-  if (!position) return null;
+      <input
+        type="text"
+        placeholder="Название места *"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="w-full border p-2 mb-2 rounded text-sm"
+        required
+      />
+
+      <div className="relative mb-2">
+        <input
+          type="text"
+          placeholder="Область/Район"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          className="w-full border p-2 rounded text-sm pr-8"
+          disabled={isLoadingAddress}
+        />
+        {isLoadingAddress && <span className="absolute right-2 top-2">⏳</span>}
+      </div>
+
+      <textarea
+        placeholder="Описание..."
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        className="w-full border p-2 mb-2 rounded text-sm h-20 resize-none"
+      />
+
+      <input
+        type="url"
+        placeholder="URL фото"
+        value={imageUrl}
+        onChange={(e) => setImageUrl(e.target.value)}
+        className="w-full border p-2 mb-2 rounded text-sm"
+      />
+
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt="Preview"
+          className="w-full h-24 object-cover rounded mb-2"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={!title}
+          className="flex-1 bg-green-600 text-white p-2 rounded text-sm disabled:bg-gray-400"
+        >
+          ✅ Добавить
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 bg-gray-300 p-2 rounded text-sm"
+        >
+          Отмена
+        </button>
+      </div>
+    </form>
+  );
+});
+
+// ============================================
+// КОМПОНЕНТ: Маркер нового места (стабильный)
+// ============================================
+
+const NewPlaceMarker = memo(function NewPlaceMarker({
+  position,
+  onSubmit,
+  onCancel,
+}: {
+  position: { lat: number; lng: number };
+  onSubmit: (data: any) => void;
+  onCancel: () => void;
+}) {
+  const markerRef = useRef<any>(null);
+
+  // Автооткрытие попапа
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.openPopup();
+    }
+  }, []);
 
   return (
     <Marker
-      position={position}
-      icon={createCustomIcon(true)}
-      draggable={true}
-      eventHandlers={{
-        dragend: (e) => {
-          const marker = e.target;
-          const pos = marker.getLatLng();
-          setPosition({ lat: pos.lat, lng: pos.lng });
-        },
-      }}
+      ref={markerRef}
+      position={[position.lat, position.lng]}
+      icon={newPlaceIcon} // 🆕 Стабильная иконка (не пересоздаётся)
+      draggable={false}
+      key="new-place-marker" // 🆕 Фиксированный ключ
     >
-      <Popup closeButton={false} autoClose={false}>
-        <form onSubmit={handleSubmit} className="w-72 p-2">
-          <h3 className="font-bold mb-2 text-lg">🍄 Новое место</h3>
-
-          <input
-            type="text"
-            placeholder="Название места *"
-            value={formData.title}
-            onChange={(e) => handleInputChange("title", e.target.value)}
-            className="w-full border p-2 mb-2 rounded text-sm"
-            required
-          />
-
-          <input
-            type="text"
-            placeholder="Область/Район/Адрес"
-            value={formData.address}
-            onChange={(e) => handleInputChange("address", e.target.value)}
-            className="w-full border p-2 mb-2 rounded text-sm"
-          />
-
-          <textarea
-            placeholder="Описание (где растут грибы, как добраться...)"
-            value={formData.description}
-            onChange={(e) => handleInputChange("description", e.target.value)}
-            className="w-full border p-2 mb-2 rounded text-sm h-20 resize-none"
-          />
-
-          <input
-            type="url"
-            placeholder="URL фотографии"
-            value={formData.imageUrl}
-            onChange={(e) => handleInputChange("imageUrl", e.target.value)}
-            className="w-full border p-2 mb-2 rounded text-sm"
-          />
-
-          {formData.imageUrl && (
-            <img
-              src={formData.imageUrl}
-              alt="Preview"
-              className="w-full h-32 object-cover rounded mb-2"
-              onError={(e) => (e.currentTarget.style.display = "none")}
-            />
-          )}
-
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              className="flex-1 bg-green-600 text-white p-2 rounded hover:bg-green-700 text-sm font-medium"
-            >
-              ✅ Добавить
-            </button>
-            <button
-              type="button"
-              onClick={() => setPosition(null)}
-              className="flex-1 bg-gray-300 p-2 rounded hover:bg-gray-400 text-sm"
-            >
-              Отмена
-            </button>
-          </div>
-        </form>
+      <Popup closeButton={true} autoClose={false} closeOnClick={false}>
+        <PopupForm
+          lat={position.lat}
+          lng={position.lng}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+        />
       </Popup>
     </Marker>
   );
+});
+
+// ============================================
+// КОМПОНЕНТ: Обработчик кликов по карте
+// ============================================
+
+function MapClickHandler({
+  onPositionChange,
+}: {
+  onPositionChange: (pos: { lat: number; lng: number }) => void;
+}) {
+  useMapEvents({
+    click(e) {
+      onPositionChange(e.latlng);
+    },
+  });
+  return null;
 }
 
-// Основной компонент карты
+// ============================================
+// ОСНОВНОЙ КОМПОНЕНТ: Map
+// ============================================
+
 interface MapProps {
   onAddPlace?: (place: Place) => void;
   places?: Place[];
@@ -187,9 +290,13 @@ interface MapProps {
 export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
+  const [newPosition, setNewPosition] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const { token } = useAuthStore();
 
-  // Загрузка мест при монтировании
+  // Загрузка мест
   useEffect(() => {
     if (externalPlaces) {
       setPlaces(externalPlaces);
@@ -204,16 +311,23 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Ошибка загрузки мест:", err);
+        console.error("Ошибка:", err);
         setLoading(false);
       });
   }, [externalPlaces]);
 
-  // Обработчик добавления места
-  const handleAddPlace = useCallback(
-    async (place: Place) => {
+  // Обработчики (стабильные благодаря useCallback)
+  const handlePositionChange = useCallback(
+    (pos: { lat: number; lng: number }) => {
+      setNewPosition(pos);
+    },
+    [],
+  );
+
+  const handleSubmit = useCallback(
+    async (data: any) => {
       if (!token) {
-        alert("Пожалуйста, войдите в систему");
+        alert("Войдите в систему");
         return;
       }
 
@@ -224,17 +338,28 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(place),
+          body: JSON.stringify({
+            title: data.title,
+            description: data.description,
+            latitude: data.lat,
+            longitude: data.lng,
+            address: data.address,
+            imageUrl: data.imageUrl,
+          }),
         });
 
         if (!res.ok) {
-          const error = await res.text();
-          throw new Error(error);
+          const errorText = await res.text();
+          throw new Error(errorText);
         }
 
-        const savedPlace = await res.json();
+        const savedPlace: Place = await res.json();
         setPlaces((prev) => [...prev, savedPlace]);
-        alert("✅ Место успешно добавлено!");
+        setNewPosition(null);
+
+        if (onAddPlace) onAddPlace(savedPlace);
+
+        alert("✅ Добавлено!");
       } catch (err) {
         alert(
           "❌ Ошибка: " +
@@ -242,15 +367,19 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
         );
       }
     },
-    [token],
+    [token, onAddPlace],
   );
+
+  const handleCancel = useCallback(() => {
+    setNewPosition(null);
+  }, []);
 
   if (loading) {
     return (
       <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
         <div className="text-center">
-          <div className="animate-spin text-4xl mb-2">🍄</div>
-          <p>Загрузка карты...</p>
+          <div className="text-4xl mb-2">🍄</div>
+          <p>Загрузка...</p>
         </div>
       </div>
     );
@@ -259,65 +388,58 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
   return (
     <div className="relative">
       <MapContainer
-        center={[53.9, 27.5667]} // Минск по умолчанию
+        center={[53.9, 27.5667]}
         zoom={7}
-        className="h-[600px] w-full rounded-lg shadow-lg"
+        className="h-[600px] w-full rounded-lg"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
         {/* Существующие места */}
         {places.map((place) => (
           <Marker
             key={place.id}
             position={[place.latitude, place.longitude]}
-            icon={createCustomIcon(false)}
+            icon={existingPlaceIcon} // 🆕 Стабильная иконка
           >
             <Popup>
-              <div className="max-w-xs">
+              <div>
                 {place.imageUrl && (
                   <img
                     src={place.imageUrl}
                     alt={place.title}
                     className="w-full h-32 object-cover rounded mb-2"
-                    onError={(e) => (e.currentTarget.style.display = "none")}
                   />
                 )}
-                <h3 className="font-bold text-lg mb-1">{place.title}</h3>
-                {place.address && (
-                  <p className="text-sm text-gray-600 mb-1">
-                    📍 {place.address}
-                  </p>
-                )}
-                <p className="text-sm text-gray-700">{place.description}</p>
-                <p className="text-xs text-gray-400 mt-2">
-                  {place.createdAt &&
-                    new Date(place.createdAt).toLocaleDateString("ru-RU")}
-                </p>
+                <h3 className="font-bold">{place.title}</h3>
+                {place.address && <p>📍 {place.address}</p>}
+                <p className="text-sm text-gray-600">{place.description}</p>
               </div>
             </Popup>
           </Marker>
         ))}
 
-        {/* Маркер для добавления нового места */}
-        <LocationMarker onAddPlace={handleAddPlace} />
+        {/* Новое место */}
+        {newPosition && (
+          <NewPlaceMarker
+            position={newPosition}
+            onSubmit={handleSubmit}
+            onCancel={handleCancel}
+          />
+        )}
+
+        <MapClickHandler onPositionChange={handlePositionChange} />
       </MapContainer>
 
       {/* Легенда */}
-      <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow-md z-[1000]">
+      <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow-md z-[1000] text-sm">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-4 h-4 bg-green-500 rounded-full"></div>
-          <span className="text-sm">Грибные места</span>
+          <span>Грибные места</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-red-500 rounded-full"></div>
-          <span className="text-sm">Новое место</span>
+          <span>Новое место</span>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Кликните на карту чтобы добавить
-        </p>
       </div>
     </div>
   );

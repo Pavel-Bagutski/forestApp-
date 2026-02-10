@@ -1,47 +1,28 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Остальные стили без изменений */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+.leaflet-popup-content {
+  margin: 0;
+  width: 300px !important;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@import "leaflet/dist/leaflet.css";
-
-/* Фикс размера карты */
-.leaflet-container {
-  height: 600px;
-  width: 100%;
-}
-
-/* Улучшение попапа */
-.leaflet-popup-content {
-  font-size: 14px;
-  min-width: 200px;
-}
-
-.my-map {
-  height: 600px;
-  width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
+.animate-bounce {
+  animation: bounce 1s infinite;
 }
