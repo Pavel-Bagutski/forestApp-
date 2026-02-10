@@ -4,6 +4,7 @@ import by.forestapp.stepOne.model.MushroomPlace;
 import by.forestapp.stepOne.model.User;
 import by.forestapp.stepOne.repository.MushroomPlaceRepository;
 import by.forestapp.stepOne.repository.UserRepository;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,7 +41,7 @@ public class PlacesController {
     @PostMapping
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<MushroomPlace> createPlace(
-            @RequestBody MushroomPlaceRequest request,
+            @Valid @RequestBody MushroomPlaceRequest request,
             Authentication authentication) {
 
         String email = authentication.getName();
@@ -52,6 +53,8 @@ public class PlacesController {
                 .description(request.getDescription())
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
+                .address(request.getAddress())      // 🆕 Область/район/адрес
+                .imageUrl(request.getImageUrl())    // 🆕 URL фото
                 .owner(owner)
                 .build();
 
@@ -59,21 +62,57 @@ public class PlacesController {
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
-    // DTO для создания точки
+    // 🆕 DTO для создания точки (внутренний класс)
     public static class MushroomPlaceRequest {
         private String title;
         private String description;
-        private double latitude;
-        private double longitude;
+        private Double latitude;
+        private Double longitude;
+        private String address;     // 🆕
+        private String imageUrl;    // 🆕
 
-        // геттеры/сеттеры
-        public String getTitle() { return title; }
-        public void setTitle(String title) { this.title = title; }
-        public String getDescription() { return description; }
-        public void setDescription(String description) { this.description = description; }
-        public double getLatitude() { return latitude; }
-        public void setLatitude(double latitude) { this.latitude = latitude; }
-        public double getLongitude() { return longitude; }
-        public void setLongitude(double longitude) { this.longitude = longitude; }
+        // Геттеры и сеттеры
+        public String getTitle() {
+            return title;
+        }
+        public void setTitle(String title) {
+            this.title = title;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+        public void setDescription(String description) {
+            this.description = description;
+        }
+
+        public Double getLatitude() {
+            return latitude;
+        }
+        public void setLatitude(Double latitude) {
+            this.latitude = latitude;
+        }
+
+        public Double getLongitude() {
+            return longitude;
+        }
+        public void setLongitude(Double longitude) {
+            this.longitude = longitude;
+        }
+
+        // 🆕 Новые геттеры и сеттеры
+        public String getAddress() {
+            return address;
+        }
+        public void setAddress(String address) {
+            this.address = address;
+        }
+
+        public String getImageUrl() {
+            return imageUrl;
+        }
+        public void setImageUrl(String imageUrl) {
+            this.imageUrl = imageUrl;
+        }
     }
 }

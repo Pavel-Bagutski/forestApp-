@@ -35,6 +35,14 @@ public class MushroomPlace {
     @Column(nullable = false)
     private Double longitude;
 
+    // 🆕 НОВОЕ: Область/район/адрес
+    @Column(length = 500)
+    private String address;
+
+    // 🆕 НОВОЕ: URL главного фото (для быстрого отображения в списке/карте)
+    @Column(length = 1000)
+    private String imageUrl;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
     private User owner;
