@@ -36,3 +36,9 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /api-docs
+
+storage:
+  supabase:
+    url: https://zcbqqgicbgumvhebcsab.supabase.co
+    bucket: place-images
+    key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpjYnFxZ2ljYmd1bXZoZWJjc2FiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDczMTYwMCwiZXhwIjoyMDg2MzA3NjAwfQ.fTZHUcn7XCIBCggHxZ2XXVOVlWdv4mKUX5_HnM1qk0M}

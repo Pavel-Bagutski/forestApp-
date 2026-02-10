@@ -1,9 +1,5 @@
 "use client";
 
-// ============================================
-// ИМПОРТЫ
-// ============================================
-
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import {
   MapContainer,
@@ -20,6 +16,12 @@ import { useAuthStore } from "@/store/authStore";
 // ТИПЫ
 // ============================================
 
+export interface PlaceImage {
+  id: number;
+  url: string;
+  uploadedAt?: string;
+}
+
 export interface Place {
   id?: number;
   title: string;
@@ -27,22 +29,22 @@ export interface Place {
   latitude: number;
   longitude: number;
   address?: string;
-  imageUrl?: string;
+  images?: PlaceImage[];
   createdAt?: string;
 }
 
 // ============================================
-// ИКОНКИ (создаются ОДИН РАЗ)
+// ИКОНКИ
 // ============================================
 
-// 🔴 Красная иконка 50px для НОВОГО места
-const newPlaceIcon = new DivIcon({
-  className: "custom-marker",
-  html: `
+const createIcon = (color: string, size: number) =>
+  new DivIcon({
+    className: "custom-marker",
+    html: `
     <div style="
-      width: 50px;
-      height: 50px;
-      background: #ef4444;
+      width: ${size}px;
+      height: ${size}px;
+      background: ${color};
       border: 3px solid white;
       border-radius: 50% 50% 50% 0;
       transform: rotate(-45deg);
@@ -56,39 +58,99 @@ const newPlaceIcon = new DivIcon({
       <span style="transform: rotate(45deg);">🍄</span>
     </div>
   `,
-  iconSize: [50, 50],
-  iconAnchor: [25, 50],
-  popupAnchor: [0, -55],
-});
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -(size + 5)],
+  });
 
-// 🟢 Зелёная иконка 40px для существующих мест
-const existingPlaceIcon = new DivIcon({
-  className: "custom-marker",
-  html: `
-    <div style="
-      width: 40px;
-      height: 40px;
-      background: #22c55e;
-      border: 3px solid white;
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      cursor: pointer;
-    ">
-      <span style="transform: rotate(45deg);">🍄</span>
+const newPlaceIcon = createIcon("#ef4444", 50);
+const existingPlaceIcon = createIcon("#22c55e", 40);
+
+// ============================================
+// КОМПОНЕНТ: Загрузка изображения (для существующего места)
+// ============================================
+
+const ImageUpload = memo(function ImageUpload({
+  placeId,
+  onUpload,
+  token,
+}: {
+  placeId: number;
+  onUpload: (image: PlaceImage) => void;
+  token: string | null;
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !token) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Пожалуйста, выберите изображение");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Файл слишком большой (максимум 5MB)");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(
+        `http://localhost:8080/api/places/${placeId}/images`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        },
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Ошибка загрузки");
+      }
+
+      const data = await res.json();
+      onUpload({ id: data.id, url: data.url });
+      alert("✅ Фото загружено!");
+    } catch (err: any) {
+      alert("❌ " + err.message);
+    } finally {
+      setIsUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-200">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={isUploading}
+        className="w-full py-2 px-3 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:bg-gray-400 transition"
+      >
+        {isUploading ? "⏳ Загрузка..." : "📷 Добавить фото"}
+      </button>
+      <p className="text-xs text-gray-400 text-center mt-1">JPG, PNG до 5MB</p>
     </div>
-  `,
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -45],
+  );
 });
 
 // ============================================
-// КОМПОНЕНТ: Форма в попапе (изолирована от маркера)
+// КОМПОНЕНТ: Форма в попапе (для НОВОГО места) С ЗАГРУЗКОЙ ФАЙЛА
 // ============================================
 
 const PopupForm = memo(function PopupForm({
@@ -96,23 +158,25 @@ const PopupForm = memo(function PopupForm({
   lng,
   onSubmit,
   onCancel,
+  token,
 }: {
   lat: number;
   lng: number;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>; // 🆕 Возвращает Promise с созданным местом
   onCancel: () => void;
+  token: string | null;
 }) {
-  // Состояния полей формы (изолированы от маркера!)
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null); // 🆕 Выбранный файл
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null); // 🆕 Превью
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // 🆕 Состояние загрузки
 
   // Геокодирование при открытии
   useEffect(() => {
     setIsLoadingAddress(true);
-    // 🆕 Исправлено: убран пробел в URL
     fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
     )
@@ -143,9 +207,92 @@ const PopupForm = memo(function PopupForm({
       .finally(() => setIsLoadingAddress(false));
   }, [lat, lng]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 🆕 Обработка выбора файла
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Валидация
+      if (!file.type.startsWith("image/")) {
+        alert("Пожалуйста, выберите изображение");
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert("Файл слишком большой (максимум 5MB)");
+        return;
+      }
+
+      setSelectedFile(file);
+      // Создаем превью
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // 🆕 Удалить выбранный файл
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ title, description, address, imageUrl, lat, lng });
+    if (!token) {
+      alert("Войдите в систему");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // 1. Создаем место
+      const placeData = {
+        title,
+        description,
+        address,
+        latitude: lat,
+        longitude: lng,
+      };
+
+      const createdPlace = await onSubmit(placeData);
+
+      // 2. Если есть файл и место создано - загружаем фото
+      if (selectedFile && createdPlace?.id) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        const uploadRes = await fetch(
+          `http://localhost:8080/api/places/${createdPlace.id}/images`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          },
+        );
+
+        if (!uploadRes.ok) {
+          console.error("Не удалось загрузить фото, но место создано");
+        } else {
+          const uploadData = await uploadRes.json();
+          console.log("Фото загружено:", uploadData.url);
+        }
+      }
+
+      // Очищаем форму
+      setTitle("");
+      setDescription("");
+      setAddress("");
+      setSelectedFile(null);
+      setPreviewUrl(null);
+    } catch (err) {
+      console.error("Ошибка при создании места:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -159,6 +306,7 @@ const PopupForm = memo(function PopupForm({
         onChange={(e) => setTitle(e.target.value)}
         className="w-full border p-2 mb-2 rounded text-sm"
         required
+        disabled={isSubmitting}
       />
 
       <div className="relative mb-2">
@@ -168,7 +316,7 @@ const PopupForm = memo(function PopupForm({
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           className="w-full border p-2 rounded text-sm pr-8"
-          disabled={isLoadingAddress}
+          disabled={isLoadingAddress || isSubmitting}
         />
         {isLoadingAddress && <span className="absolute right-2 top-2">⏳</span>}
       </div>
@@ -178,39 +326,57 @@ const PopupForm = memo(function PopupForm({
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         className="w-full border p-2 mb-2 rounded text-sm h-20 resize-none"
+        disabled={isSubmitting}
       />
 
-      <input
-        type="url"
-        placeholder="URL фото"
-        value={imageUrl}
-        onChange={(e) => setImageUrl(e.target.value)}
-        className="w-full border p-2 mb-2 rounded text-sm"
-      />
+      {/* 🆕 ЗАГРУЗКА ФАЙЛА ВМЕСТО URL */}
+      <div className="mb-3">
+        <label className="block text-sm text-gray-600 mb-1">Фото:</label>
 
-      {imageUrl && (
-        <img
-          src={imageUrl}
-          alt="Preview"
-          className="w-full h-24 object-cover rounded mb-2"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-      )}
+        {!selectedFile ? (
+          <div className="relative">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              disabled={isSubmitting}
+            />
+            <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP до 5MB</p>
+          </div>
+        ) : (
+          <div className="relative">
+            <img
+              src={previewUrl || ""}
+              alt="Preview"
+              className="w-full h-24 object-cover rounded mb-2"
+            />
+            <button
+              type="button"
+              onClick={handleRemoveFile}
+              className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+              disabled={isSubmitting}
+            >
+              ✕
+            </button>
+            <p className="text-xs text-green-600">✓ Фото выбрано</p>
+          </div>
+        )}
+      </div>
 
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={!title}
-          className="flex-1 bg-green-600 text-white p-2 rounded text-sm disabled:bg-gray-400"
+          disabled={!title || isSubmitting}
+          className="flex-1 bg-green-600 text-white p-2 rounded text-sm disabled:bg-gray-400 hover:bg-green-700 transition"
         >
-          ✅ Добавить
+          {isSubmitting ? "⏳ Сохранение..." : "✅ Добавить"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 bg-gray-300 p-2 rounded text-sm"
+          disabled={isSubmitting}
+          className="flex-1 bg-gray-300 p-2 rounded text-sm hover:bg-gray-400 transition"
         >
           Отмена
         </button>
@@ -220,34 +386,105 @@ const PopupForm = memo(function PopupForm({
 });
 
 // ============================================
-// КОМПОНЕНТ: Маркер нового места (стабильный)
+// КОМПОНЕНТ: Попап для СУЩЕСТВУЮЩЕГО места
+// ============================================
+
+const PlacePopup = memo(function PlacePopup({
+  place,
+  token,
+  onImageAdded,
+}: {
+  place: Place;
+  token: string | null;
+  onImageAdded: (placeId: number, image: PlaceImage) => void;
+}) {
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
+  const images = place.images || [];
+  const hasImages = images.length > 0;
+
+  return (
+    <div className="min-w-[250px] max-w-[300px]">
+      {/* Галерея фото */}
+      {hasImages && (
+        <div className="mb-3">
+          <img
+            src={images[0].url}
+            alt={place.title}
+            className="w-full h-32 object-cover rounded-lg"
+          />
+          {images.length > 1 && !showAllPhotos && (
+            <button
+              onClick={() => setShowAllPhotos(true)}
+              className="text-xs text-blue-600 mt-1 hover:underline"
+            >
+              +{images.length - 1} фото ещё
+            </button>
+          )}
+
+          {showAllPhotos && images.length > 1 && (
+            <div className="grid grid-cols-2 gap-1 mt-2">
+              {images.slice(1).map((img) => (
+                <img
+                  key={img.id}
+                  src={img.url}
+                  alt="Фото места"
+                  className="w-full h-20 object-cover rounded"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <h3 className="font-bold text-lg">{place.title}</h3>
+
+      {place.address && (
+        <p className="text-sm text-gray-600 mt-1">📍 {place.address}</p>
+      )}
+
+      {place.description && (
+        <p className="text-sm mt-2 text-gray-700">{place.description}</p>
+      )}
+
+      {/* Загрузка фото (только для авторизованных) */}
+      {token && place.id && (
+        <ImageUpload
+          placeId={place.id}
+          token={token}
+          onUpload={(image) => onImageAdded(place.id!, image)}
+        />
+      )}
+    </div>
+  );
+});
+
+// ============================================
+// КОМПОНЕНТ: Маркер нового места
 // ============================================
 
 const NewPlaceMarker = memo(function NewPlaceMarker({
   position,
   onSubmit,
   onCancel,
+  token,
 }: {
   position: { lat: number; lng: number };
-  onSubmit: (data: any) => void;
+  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
   onCancel: () => void;
+  token: string | null;
 }) {
   const markerRef = useRef<any>(null);
 
-  // Автооткрытие попапа
   useEffect(() => {
-    if (markerRef.current) {
-      markerRef.current.openPopup();
-    }
+    markerRef.current?.openPopup();
   }, []);
 
   return (
     <Marker
       ref={markerRef}
       position={[position.lat, position.lng]}
-      icon={newPlaceIcon} // 🆕 Стабильная иконка (не пересоздаётся)
+      icon={newPlaceIcon}
       draggable={false}
-      key="new-place-marker" // 🆕 Фиксированный ключ
     >
       <Popup closeButton={true} autoClose={false} closeOnClick={false}>
         <PopupForm
@@ -255,6 +492,7 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
           lng={position.lng}
           onSubmit={onSubmit}
           onCancel={onCancel}
+          token={token}
         />
       </Popup>
     </Marker>
@@ -283,98 +521,65 @@ function MapClickHandler({
 // ============================================
 
 interface MapProps {
-  onAddPlace?: (place: Place) => void;
   places?: Place[];
+  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt">) => Promise<Place>; // 🆕 Возвращает Promise<Place>
+  onImageAdded?: (placeId: number, image: PlaceImage) => void;
+  isLoading?: boolean;
 }
 
-export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
-  const [places, setPlaces] = useState<Place[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function Map({
+  places = [],
+  onAddPlace,
+  onImageAdded,
+  isLoading = false,
+}: MapProps) {
   const [newPosition, setNewPosition] = useState<{
     lat: number;
     lng: number;
   } | null>(null);
   const { token } = useAuthStore();
 
-  // Загрузка мест
-  useEffect(() => {
-    if (externalPlaces) {
-      setPlaces(externalPlaces);
-      setLoading(false);
-      return;
-    }
-
-    fetch("http://localhost:8080/api/places")
-      .then((res) => res.json())
-      .then((data) => {
-        setPlaces(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Ошибка:", err);
-        setLoading(false);
-      });
-  }, [externalPlaces]);
-
-  // Обработчики (стабильные благодаря useCallback)
   const handlePositionChange = useCallback(
     (pos: { lat: number; lng: number }) => {
+      if (!token) {
+        alert("Войдите в систему, чтобы добавлять места");
+        return;
+      }
       setNewPosition(pos);
     },
-    [],
+    [token],
   );
 
   const handleSubmit = useCallback(
-    async (data: any) => {
-      if (!token) {
-        alert("Войдите в систему");
-        return;
-      }
+    async (data: Omit<Place, "id" | "createdAt">): Promise<Place> => {
+      if (!onAddPlace) throw new Error("No onAddPlace handler");
 
       try {
-        const res = await fetch("http://localhost:8080/api/places", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            title: data.title,
-            description: data.description,
-            latitude: data.lat,
-            longitude: data.lng,
-            address: data.address,
-            imageUrl: data.imageUrl,
-          }),
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(errorText);
-        }
-
-        const savedPlace: Place = await res.json();
-        setPlaces((prev) => [...prev, savedPlace]);
+        const createdPlace = await onAddPlace(data);
         setNewPosition(null);
-
-        if (onAddPlace) onAddPlace(savedPlace);
-
-        alert("✅ Добавлено!");
+        return createdPlace;
       } catch (err) {
-        alert(
-          "❌ Ошибка: " +
-            (err instanceof Error ? err.message : "Не удалось сохранить"),
-        );
+        console.error("Ошибка при добавлении:", err);
+        throw err;
       }
     },
-    [token, onAddPlace],
+    [onAddPlace],
   );
 
   const handleCancel = useCallback(() => {
     setNewPosition(null);
   }, []);
 
-  if (loading) {
+  const handleImageAdded = useCallback(
+    (placeId: number, image: PlaceImage) => {
+      if (onImageAdded) {
+        onImageAdded(placeId, image);
+      }
+    },
+    [onImageAdded],
+  );
+
+  if (isLoading) {
     return (
       <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
         <div className="text-center">
@@ -399,21 +604,14 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
           <Marker
             key={place.id}
             position={[place.latitude, place.longitude]}
-            icon={existingPlaceIcon} // 🆕 Стабильная иконка
+            icon={existingPlaceIcon}
           >
             <Popup>
-              <div>
-                {place.imageUrl && (
-                  <img
-                    src={place.imageUrl}
-                    alt={place.title}
-                    className="w-full h-32 object-cover rounded mb-2"
-                  />
-                )}
-                <h3 className="font-bold">{place.title}</h3>
-                {place.address && <p>📍 {place.address}</p>}
-                <p className="text-sm text-gray-600">{place.description}</p>
-              </div>
+              <PlacePopup
+                place={place}
+                token={token}
+                onImageAdded={handleImageAdded}
+              />
             </Popup>
           </Marker>
         ))}
@@ -424,6 +622,7 @@ export default function Map({ onAddPlace, places: externalPlaces }: MapProps) {
             position={newPosition}
             onSubmit={handleSubmit}
             onCancel={handleCancel}
+            token={token}
           />
         )}
 

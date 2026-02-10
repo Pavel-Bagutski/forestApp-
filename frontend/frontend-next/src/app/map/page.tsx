@@ -1,23 +1,14 @@
 "use client";
 
-// ============================================
-// ИМПОРТЫ
-// ============================================
-
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import axios from "axios";
-import { Place } from "@/components/Map";
+import { Place, PlaceImage } from "@/components/Map";
 import { useAuthStore } from "@/store/authStore";
 
-// ============================================
-// ДИНАМИЧЕСКИЙ ИМПОРТ КАРТЫ (без SSR)
-// ============================================
-
 const Map = dynamic(() => import("@/components/Map"), {
-  ssr: false, // 🆕 Отключаем серверный рендеринг для Leaflet
+  ssr: false,
   loading: () => (
-    // 🆕 Исправлено: h-150 → h-[600px] (валидный Tailwind)
     <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
       <div className="text-center">
         <div className="animate-bounce text-4xl mb-2">🍄</div>
@@ -27,66 +18,94 @@ const Map = dynamic(() => import("@/components/Map"), {
   ),
 });
 
-// ============================================
-// ОСНОВНОЙ КОМПОНЕНТ: Страница карты
-// ============================================
-
 export default function MapPage() {
-  // Состояния
   const [places, setPlaces] = useState<Place[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
-  const { token } = useAuthStore(); // Токен для авторизации
+  const { token } = useAuthStore();
 
-  // Защита от гидратации: ждём загрузки клиента
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Загрузка мест с сервера (только на клиенте)
   useEffect(() => {
-    if (!isClient) return; // Не выполнять на сервере
+    if (!isClient) return;
 
-    axios
-      .get("http://localhost:8080/api/places")
-      .then((res) => {
+    const fetchPlaces = async () => {
+      try {
+        setIsLoading(true);
+        const res = await axios.get("http://localhost:8080/api/places");
         setPlaces(res.data);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("Ошибка при загрузке мест:", err);
-      });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPlaces();
   }, [isClient]);
 
-  // 🆕 Обработчик добавления места (с авторизацией)
-  const handlePlaceAdd = async (place: Place) => {
-    // Проверка авторизации
+  const handleImageAdded = (placeId: number, image: PlaceImage) => {
+    setPlaces((prev) =>
+      prev.map((place) => {
+        if (place.id === placeId) {
+          return {
+            ...place,
+            images: [...(place.images || []), image],
+          };
+        }
+        return place;
+      }),
+    );
+  };
+
+  // 🆕 Теперь возвращает Promise<Place>
+  const handlePlaceAdd = async (
+    placeData: Omit<Place, "id" | "createdAt">,
+  ): Promise<Place> => {
     if (!token) {
       alert("Войдите в систему");
-      return;
+      throw new Error("Нет токена авторизации");
     }
 
     try {
-      const res = await axios.post("http://localhost:8080/api/places", place, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // 🆕 Токен для авторизации
+      const res = await axios.post(
+        "http://localhost:8080/api/places",
+        {
+          title: placeData.title,
+          description: placeData.description,
+          latitude: placeData.latitude,
+          longitude: placeData.longitude,
+          address: placeData.address,
         },
-      });
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
 
-      // Добавляем новое место в список
-      setPlaces((prev) => [...prev, res.data]);
-      alert("Место успешно добавлено!");
-    } catch (err) {
+      const newPlace: Place = res.data;
+
+      // Добавляем в локальный список
+      setPlaces((prev) => [...prev, newPlace]);
+
+      return newPlace; // 🆕 Возвращаем созданное место
+    } catch (err: any) {
       console.error("Ошибка при добавлении места:", err);
-      alert("Не удалось добавить место");
+      const message =
+        err.response?.data?.message || "Не удалось добавить место";
+      alert("❌ Ошибка: " + message);
+      throw err;
     }
   };
 
-  // 🆕 Не рендерим на сервере (защита от гидратации)
   if (!isClient) {
     return (
       <div className="max-w-7xl mx-auto p-4">
         <h1 className="text-2xl font-bold mb-4">Карта грибных мест 🍄</h1>
-        {/* 🆕 Исправлено: h-150 → h-[600px] */}
         <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
           <div className="text-center">
             <div className="animate-bounce text-4xl mb-2">🍄</div>
@@ -97,13 +116,16 @@ export default function MapPage() {
     );
   }
 
-  // Основной рендер
   return (
     <div className="max-w-7xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Карта грибных мест 🍄</h1>
       <div className="rounded-xl overflow-hidden shadow-2xl border border-gray-200 bg-white">
-        {/* 🆕 Передаём places и onAddPlace */}
-        <Map places={places} onAddPlace={handlePlaceAdd} />
+        <Map
+          places={places}
+          onAddPlace={handlePlaceAdd}
+          onImageAdded={handleImageAdded}
+          isLoading={isLoading}
+        />
       </div>
     </div>
   );
