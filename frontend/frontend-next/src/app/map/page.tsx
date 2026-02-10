@@ -46,6 +46,7 @@ export default function MapPage() {
     fetchPlaces();
   }, [isClient]);
 
+  // 🆕 Этот callback вызывается когда фото загружено (и для новых, и для существующих мест)
   const handleImageAdded = (placeId: number, image: PlaceImage) => {
     setPlaces((prev) =>
       prev.map((place) => {
@@ -60,7 +61,6 @@ export default function MapPage() {
     );
   };
 
-  // 🆕 Теперь возвращает Promise<Place>
   const handlePlaceAdd = async (
     placeData: Omit<Place, "id" | "createdAt">,
   ): Promise<Place> => {
@@ -88,11 +88,9 @@ export default function MapPage() {
       );
 
       const newPlace: Place = res.data;
-
-      // Добавляем в локальный список
       setPlaces((prev) => [...prev, newPlace]);
 
-      return newPlace; // 🆕 Возвращаем созданное место
+      return newPlace;
     } catch (err: any) {
       console.error("Ошибка при добавлении места:", err);
       const message =

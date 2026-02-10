@@ -14,9 +14,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import org.hibernate.Hibernate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -39,13 +41,13 @@ public class PlacesController {
     // 1. Все могут видеть список точек (для карты)
     @GetMapping
     public List<MushroomPlace> getAllPlaces() {
-        return placeRepository.findAll();
+        return placeRepository.findAllWithImages(); // Вместо findAll()
     }
 
     // 2. Детали одной точки (все могут смотреть)
     @GetMapping("/{id}")
     public ResponseEntity<MushroomPlace> getPlace(@PathVariable Long id) {
-        return placeRepository.findById(id)
+        return placeRepository.findByIdWithImages(id) // Вместо findById()
                 .map(ResponseEntity::ok)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
     }
@@ -131,6 +133,7 @@ public class PlacesController {
     // Загрузка фото к существующему месту
     @PostMapping(value = "/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    @Transactional
     public ResponseEntity<?> uploadImage(
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file,

@@ -100,8 +100,9 @@ const ImageUpload = memo(function ImageUpload({
       const formData = new FormData();
       formData.append("file", file);
 
+      // 🆕 Используем axios или полный URL
       const res = await fetch(
-        `http://localhost:8080/api/places/${placeId}/images`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${placeId}/images`,
         {
           method: "POST",
           headers: {
@@ -120,7 +121,8 @@ const ImageUpload = memo(function ImageUpload({
       onUpload({ id: data.id, url: data.url });
       alert("✅ Фото загружено!");
     } catch (err: any) {
-      alert("❌ " + err.message);
+      console.error("Upload error:", err);
+      alert("❌ " + (err.message || "Ошибка загрузки"));
     } finally {
       setIsUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -150,7 +152,7 @@ const ImageUpload = memo(function ImageUpload({
 });
 
 // ============================================
-// КОМПОНЕНТ: Форма в попапе (для НОВОГО места) С ЗАГРУЗКОЙ ФАЙЛА
+// КОМПОНЕНТ: Форма в попапе (для НОВОГО места)
 // ============================================
 
 const PopupForm = memo(function PopupForm({
@@ -159,22 +161,23 @@ const PopupForm = memo(function PopupForm({
   onSubmit,
   onCancel,
   token,
+  onImageAdded,
 }: {
   lat: number;
   lng: number;
-  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>; // 🆕 Возвращает Promise с созданным местом
+  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
   onCancel: () => void;
   token: string | null;
+  onImageAdded?: (placeId: number, image: PlaceImage) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null); // 🆕 Выбранный файл
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null); // 🆕 Превью
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false); // 🆕 Состояние загрузки
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Геокодирование при открытии
   useEffect(() => {
     setIsLoadingAddress(true);
     fetch(
@@ -207,11 +210,9 @@ const PopupForm = memo(function PopupForm({
       .finally(() => setIsLoadingAddress(false));
   }, [lat, lng]);
 
-  // 🆕 Обработка выбора файла
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Валидация
       if (!file.type.startsWith("image/")) {
         alert("Пожалуйста, выберите изображение");
         return;
@@ -222,7 +223,6 @@ const PopupForm = memo(function PopupForm({
       }
 
       setSelectedFile(file);
-      // Создаем превью
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreviewUrl(reader.result as string);
@@ -231,7 +231,6 @@ const PopupForm = memo(function PopupForm({
     }
   };
 
-  // 🆕 Удалить выбранный файл
   const handleRemoveFile = () => {
     setSelectedFile(null);
     setPreviewUrl(null);
@@ -247,7 +246,6 @@ const PopupForm = memo(function PopupForm({
     setIsSubmitting(true);
 
     try {
-      // 1. Создаем место
       const placeData = {
         title,
         description,
@@ -258,13 +256,12 @@ const PopupForm = memo(function PopupForm({
 
       const createdPlace = await onSubmit(placeData);
 
-      // 2. Если есть файл и место создано - загружаем фото
       if (selectedFile && createdPlace?.id) {
         const formData = new FormData();
         formData.append("file", selectedFile);
 
         const uploadRes = await fetch(
-          `http://localhost:8080/api/places/${createdPlace.id}/images`,
+          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${createdPlace.id}/images`,
           {
             method: "POST",
             headers: {
@@ -279,10 +276,16 @@ const PopupForm = memo(function PopupForm({
         } else {
           const uploadData = await uploadRes.json();
           console.log("Фото загружено:", uploadData.url);
+
+          if (onImageAdded) {
+            onImageAdded(createdPlace.id, {
+              id: uploadData.id,
+              url: uploadData.url,
+            });
+          }
         }
       }
 
-      // Очищаем форму
       setTitle("");
       setDescription("");
       setAddress("");
@@ -329,7 +332,6 @@ const PopupForm = memo(function PopupForm({
         disabled={isSubmitting}
       />
 
-      {/* 🆕 ЗАГРУЗКА ФАЙЛА ВМЕСТО URL */}
       <div className="mb-3">
         <label className="block text-sm text-gray-600 mb-1">Фото:</label>
 
@@ -346,11 +348,14 @@ const PopupForm = memo(function PopupForm({
           </div>
         ) : (
           <div className="relative">
-            <img
-              src={previewUrl || ""}
-              alt="Preview"
-              className="w-full h-24 object-cover rounded mb-2"
-            />
+            {/* 🆕 ПРОВЕРКА: показываем img только если previewUrl не пустой */}
+            {previewUrl && (
+              <img
+                src={previewUrl}
+                alt="Preview"
+                className="w-full h-24 object-cover rounded mb-2"
+              />
+            )}
             <button
               type="button"
               onClick={handleRemoveFile}
@@ -404,8 +409,7 @@ const PlacePopup = memo(function PlacePopup({
 
   return (
     <div className="min-w-[250px] max-w-[300px]">
-      {/* Галерея фото */}
-      {hasImages && (
+      {hasImages && images[0]?.url ? (
         <div className="mb-3">
           <img
             src={images[0].url}
@@ -423,16 +427,25 @@ const PlacePopup = memo(function PlacePopup({
 
           {showAllPhotos && images.length > 1 && (
             <div className="grid grid-cols-2 gap-1 mt-2">
-              {images.slice(1).map((img) => (
-                <img
-                  key={img.id}
-                  src={img.url}
-                  alt="Фото места"
-                  className="w-full h-20 object-cover rounded"
-                />
-              ))}
+              {images
+                .slice(1)
+                .map(
+                  (img) =>
+                    img?.url && (
+                      <img
+                        key={img.id}
+                        src={img.url}
+                        alt="Фото места"
+                        className="w-full h-20 object-cover rounded"
+                      />
+                    ),
+                )}
             </div>
           )}
+        </div>
+      ) : (
+        <div className="mb-3 p-4 bg-gray-100 rounded-lg text-center text-gray-500 text-sm">
+          Нет фото
         </div>
       )}
 
@@ -446,7 +459,6 @@ const PlacePopup = memo(function PlacePopup({
         <p className="text-sm mt-2 text-gray-700">{place.description}</p>
       )}
 
-      {/* Загрузка фото (только для авторизованных) */}
       {token && place.id && (
         <ImageUpload
           placeId={place.id}
@@ -467,11 +479,13 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
   onSubmit,
   onCancel,
   token,
+  onImageAdded,
 }: {
   position: { lat: number; lng: number };
   onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
   onCancel: () => void;
   token: string | null;
+  onImageAdded?: (placeId: number, image: PlaceImage) => void;
 }) {
   const markerRef = useRef<any>(null);
 
@@ -493,6 +507,7 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
           onSubmit={onSubmit}
           onCancel={onCancel}
           token={token}
+          onImageAdded={onImageAdded}
         />
       </Popup>
     </Marker>
@@ -522,7 +537,7 @@ function MapClickHandler({
 
 interface MapProps {
   places?: Place[];
-  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt">) => Promise<Place>; // 🆕 Возвращает Promise<Place>
+  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt">) => Promise<Place>;
   onImageAdded?: (placeId: number, image: PlaceImage) => void;
   isLoading?: boolean;
 }
@@ -599,7 +614,6 @@ export default function Map({
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* Существующие места */}
         {places.map((place) => (
           <Marker
             key={place.id}
@@ -616,20 +630,19 @@ export default function Map({
           </Marker>
         ))}
 
-        {/* Новое место */}
         {newPosition && (
           <NewPlaceMarker
             position={newPosition}
             onSubmit={handleSubmit}
             onCancel={handleCancel}
             token={token}
+            onImageAdded={handleImageAdded}
           />
         )}
 
         <MapClickHandler onPositionChange={handlePositionChange} />
       </MapContainer>
 
-      {/* Легенда */}
       <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow-md z-[1000] text-sm">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-4 h-4 bg-green-500 rounded-full"></div>

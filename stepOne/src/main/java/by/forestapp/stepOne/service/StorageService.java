@@ -1,25 +1,17 @@
 package by.forestapp.stepOne.service;
 
-import lombok.RequiredArgsConstructor;
+import kong.unirest.HttpResponse;
+import kong.unirest.Unirest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
-import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class StorageService {
 
     @Value("${storage.supabase.url}")
@@ -30,24 +22,6 @@ public class StorageService {
 
     @Value("${storage.supabase.bucket}")
     private String bucketName;
-
-    private S3Client s3Client;
-
-    @PostConstruct
-    public void init() {
-        // Supabase S3 endpoint
-        String endpoint = supabaseUrl.replace("/storage/v1", "");
-
-        this.s3Client = S3Client.builder()
-                .endpointOverride(java.net.URI.create(endpoint))
-                .region(Region.of("eu-central-1"))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(supabaseKey, supabaseKey)
-                ))
-                .build();
-
-        log.info("StorageService initialized with bucket: {}", bucketName);
-    }
 
     public String uploadImage(MultipartFile file, Long placeId) {
         validateFile(file);
@@ -60,61 +34,83 @@ public class StorageService {
                     extension
             );
 
-            s3Client.putObject(
-                    PutObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(filename)
-                            .contentType(file.getContentType())
-                            .build(),
-                    RequestBody.fromBytes(file.getBytes())
-            );
+            log.info("Uploading file: {} to bucket: {}", filename, bucketName);
 
-            // Публичный URL
-            return String.format("%s/object/public/%s/%s",
+            String uploadUrl = String.format("%s/storage/v1/object/%s/%s",
                     supabaseUrl, bucketName, filename);
 
+            // Unirest загрузка
+            HttpResponse<String> response = Unirest.post(uploadUrl)
+                    .header("apikey", supabaseKey)
+                    .header("Authorization", "Bearer " + supabaseKey)
+                    .header("Content-Type", file.getContentType())
+                    .body(file.getBytes())
+                    .asString();
+
+            log.info("Response status: {}", response.getStatus());
+            log.info("Response body: {}", response.getBody());
+
+            if (response.getStatus() >= 200 && response.getStatus() < 300) {
+                String publicUrl = String.format("%s/storage/v1/object/public/%s/%s",
+                        supabaseUrl, bucketName, filename);
+
+                log.info("Upload SUCCESS! URL: {}", publicUrl);
+                return publicUrl;
+            } else {
+                throw new RuntimeException("Upload failed: " + response.getBody());
+            }
+
         } catch (IOException e) {
-            log.error("Failed to upload file", e);
-            throw new RuntimeException("Не удалось загрузить изображение", e);
+            log.error("Failed to read file", e);
+            throw new RuntimeException("Не удалось прочитать файл", e);
+        } catch (Exception e) {
+            log.error("Upload FAILED: {}", e.getMessage(), e);
+            throw new RuntimeException("Не удалось загрузить изображение: " + e.getMessage(), e);
         }
     }
 
     public void deleteImage(String imageUrl) {
         try {
-            // Извлекаем ключ из URL
-            String key = imageUrl.substring(imageUrl.indexOf(bucketName) + bucketName.length() + 1);
+            String prefix = "/storage/v1/object/public/" + bucketName + "/";
+            int index = imageUrl.indexOf(prefix);
 
-            s3Client.deleteObject(
-                    DeleteObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build()
-            );
+            if (index == -1) {
+                log.warn("Could not extract key from URL: {}", imageUrl);
+                return;
+            }
 
-            log.info("Deleted image: {}", key);
+            String key = imageUrl.substring(index + prefix.length());
+            String deleteUrl = String.format("%s/storage/v1/object/%s/%s",
+                    supabaseUrl, bucketName, key);
+
+            HttpResponse<String> response = Unirest.delete(deleteUrl)
+                    .header("apikey", supabaseKey)
+                    .header("Authorization", "Bearer " + supabaseKey)
+                    .asString();
+
+            log.info("Deleted image: {}, status: {}", key, response.getStatus());
         } catch (Exception e) {
             log.error("Failed to delete image: {}", imageUrl, e);
         }
     }
 
     private void validateFile(MultipartFile file) {
-        if (file.isEmpty()) {
-            throw new IllegalArgumentException("Файл пустой");
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Файл не выбран");
         }
 
-        if (!file.getContentType().startsWith("image/")) {
-            throw new IllegalArgumentException("Только изображения (JPEG, PNG, WebP)");
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("Разрешены только изображения");
         }
 
-        // Максимум 5MB
         if (file.getSize() > 5 * 1024 * 1024) {
             throw new IllegalArgumentException("Файл слишком большой (макс 5MB)");
         }
 
-        // Разрешённые форматы
         String ext = getExtension(file.getOriginalFilename());
         if (!ext.matches("jpg|jpeg|png|webp")) {
-            throw new IllegalArgumentException("Формат не поддерживается. Используйте: JPG, PNG, WebP");
+            throw new IllegalArgumentException("Формат не поддерживается");
         }
     }
 
