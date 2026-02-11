@@ -438,9 +438,20 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
   onImageAdded?: (placeId: number, image: PlaceImage) => void;
 }) {
   const markerRef = useRef<any>(null);
+  const popupRef = useRef<any>(null); // 🆕 Добавь ref для popup
 
   useEffect(() => {
     markerRef.current?.openPopup();
+
+    // 🆕 Останавливаем распространение событий клика
+    if (popupRef.current) {
+      const popupElement = popupRef.current.getElement();
+      if (popupElement) {
+        popupElement.addEventListener("click", (e: MouseEvent) => {
+          e.stopPropagation();
+        });
+      }
+    }
   }, []);
 
   return (
@@ -450,7 +461,12 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
       icon={newPlaceIcon}
       draggable={false}
     >
-      <Popup closeButton={true} autoClose={false} closeOnClick={false}>
+      <Popup
+        ref={popupRef} // 🆕 Добавь ref
+        closeButton={true}
+        autoClose={false}
+        closeOnClick={false}
+      >
         <PopupForm
           lat={position.lat}
           lng={position.lng}
@@ -468,18 +484,70 @@ const NewPlaceMarker = memo(function NewPlaceMarker({
 // КОМПОНЕНТ: Обработчик кликов по карте
 // ============================================
 
-function MapClickHandler({
-  onPositionChange,
+const PlacePopup = memo(function PlacePopup({
+  place,
+  token,
+  onImageAdded,
 }: {
-  onPositionChange: (pos: { lat: number; lng: number }) => void;
+  place: Place;
+  token: string | null;
+  onImageAdded: (placeId: number, image: PlaceImage) => void;
 }) {
-  useMapEvents({
-    click(e) {
-      onPositionChange(e.latlng);
-    },
-  });
-  return null;
-}
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
+  const images = place.images || [];
+  const hasImages = images.length > 0;
+
+  // 🆕 Функция для остановки распространения события
+  const handleShowPhotos = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAllPhotos(true);
+  };
+
+  return (
+    <div className="min-w-[250px] max-w-[300px]">
+      {hasImages && images[0]?.url ? (
+        <div className="mb-3">
+          <img
+            src={images[0].url}
+            alt={place.title}
+            className="w-full h-32 object-cover rounded-lg"
+          />
+          {images.length > 1 && !showAllPhotos && (
+            <button
+              onClick={handleShowPhotos} // 🆕 Используем новый обработчик
+              className="text-xs text-blue-600 mt-1 hover:underline"
+            >
+              +{images.length - 1} фото ещё
+            </button>
+          )}
+          {/* остальной код без изменений */}
+        </div>
+      ) : (
+        <div className="mb-3 p-4 bg-gray-100 rounded-lg text-center text-gray-500 text-sm">
+          Нет фото
+        </div>
+      )}
+
+      <h3 className="font-bold text-lg">{place.title}</h3>
+
+      {place.address && (
+        <p className="text-sm text-gray-600 mt-1">📍 {place.address}</p>
+      )}
+
+      {place.description && (
+        <p className="text-sm mt-2 text-gray-700">{place.description}</p>
+      )}
+
+      {token && place.id && (
+        <ImageUpload
+          placeId={place.id}
+          token={token}
+          onUpload={(image) => onImageAdded(place.id!, image)}
+        />
+      )}
+    </div>
+  );
+});
 
 // ============================================
 // ОСНОВНОЙ КОМПОНЕНТ: Map

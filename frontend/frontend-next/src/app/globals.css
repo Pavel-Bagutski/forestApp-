@@ -11,6 +11,7 @@
 .leaflet-popup-content {
   margin: 0;
   width: 300px !important;
+  pointer-events: auto !important;
 }
 
 @keyframes bounce {
@@ -25,4 +26,8 @@
 
 .animate-bounce {
   animation: bounce 1s infinite;
+}
+
+.leaflet-popup-content-wrapper {
+  pointer-events: auto !important;
 }

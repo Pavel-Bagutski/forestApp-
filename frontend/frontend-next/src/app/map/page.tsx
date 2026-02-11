@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import api from "@/lib/axios"; // 🆕 Используем наш кастомный axios
+import api from "@/lib/axios"; // 🆕 Заменили axios на api
 import { Place, PlaceImage } from "@/components/Map";
 import { useAuthStore } from "@/store/authStore";
-import { useRouter } from "next/navigation"; // 🆕 Добавляем router
+import { useRouter } from "next/navigation"; // 🆕 Добавили router
 
 const Map = dynamic(() => import("@/components/Map"), {
   ssr: false,
@@ -23,8 +23,8 @@ export default function MapPage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
-  const { token, logout } = useAuthStore(); // 🆕 Добавляем logout
-  const router = useRouter(); // 🆕 Добавляем router
+  const { token, logout } = useAuthStore(); // 🆕 Добавили logout
+  const router = useRouter(); // 🆕 Добавили router
 
   useEffect(() => {
     setIsClient(true);
@@ -73,7 +73,7 @@ export default function MapPage() {
     try {
       const res = await api.post(
         // 🆕 Используем api вместо axios
-        "/api/places",
+        "/api/places", // 🆕 Убрали полный URL
         {
           title: placeData.title,
           description: placeData.description,
@@ -94,22 +94,21 @@ export default function MapPage() {
 
       return newPlace;
     } catch (err: any) {
-      // 🆕 Улучшенная обработка ошибок
+      // 🆕 Обработка истекшего токена
       if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         alert("Сессия истекла. Пожалуйста, войдите снова");
         router.push("/login");
-      } else {
-        console.error("Ошибка при добавлении места:", err);
-        const message =
-          err.response?.data?.message || "Не удалось добавить место";
-        alert("❌ Ошибка: " + message);
       }
+
+      console.error("Ошибка при добавлении места:", err);
+      const message =
+        err.response?.data?.message || "Не удалось добавить место";
+      alert("❌ Ошибка: " + message);
       throw err;
     }
   };
 
-  // Остальной код без изменений...
   if (!isClient) {
     return (
       <div className="max-w-7xl mx-auto p-4">
