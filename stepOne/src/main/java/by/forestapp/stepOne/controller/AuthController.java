@@ -19,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import by.forestapp.stepOne.model.Role;
 
 @CrossOrigin(
         origins = "http://localhost:3000",                        // твой фронтенд Next.js
@@ -63,7 +64,7 @@ public class AuthController {
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .password(passwordEncoder.encode(request.password()))
-                .role(User.Role.USER)
+                .role(Role.USER)
                 .build();
 
         user = userRepository.save(user);

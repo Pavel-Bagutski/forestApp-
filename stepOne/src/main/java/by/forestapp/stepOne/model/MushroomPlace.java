@@ -1,5 +1,6 @@
 package by.forestapp.stepOne.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -45,7 +46,9 @@ public class MushroomPlace {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
+    @JsonIgnoreProperties({"places", "hibernateLazyInitializer", "handler"})
     private User owner;
+
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
@@ -56,6 +59,7 @@ public class MushroomPlace {
 
     @OneToMany(mappedBy = "place", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnoreProperties("place")  // ← Не сериализуем обратную ссылку
     private List<PlaceImage> images = new ArrayList<>();
 
     @OneToMany(mappedBy = "place", cascade = CascadeType.ALL, orphanRemoval = true)

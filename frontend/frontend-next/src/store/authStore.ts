@@ -1,13 +1,29 @@
-import { create } from "zustand";
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface AuthState {
   token: string | null;
-  setToken: (token: string | null) => void;
+  user: any | null;
+  setToken: (token: string) => void;
+  setUser: (user: any) => void;
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  token: null,
-  setToken: (token) => set({ token }),
-  logout: () => set({ token: null }),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      token: null,
+      user: null,
+      setToken: (token) => set({ token }),
+      setUser: (user) => set({ user }),
+      logout: () => {
+        set({ token: null, user: null });
+        localStorage.removeItem('auth-storage'); // Очищаем хранилище
+      },
+    }),
+    {
+      name: 'auth-storage', // Ключ в localStorage
+      partialize: (state) => ({ token: state.token, user: state.user }), // Что сохранять
+    }
+  )
+);

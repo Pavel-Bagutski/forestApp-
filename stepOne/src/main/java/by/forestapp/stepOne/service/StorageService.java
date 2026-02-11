@@ -17,8 +17,11 @@ public class StorageService {
     @Value("${storage.supabase.url}")
     private String supabaseUrl;
 
-    @Value("${storage.supabase.key}")
-    private String supabaseKey;
+    @Value("${storage.supabase.anon-key}")
+    private String anonKey;
+
+    @Value("${storage.supabase.service-key}")
+    private String serviceKey;
 
     @Value("${storage.supabase.bucket}")
     private String bucketName;
@@ -39,10 +42,9 @@ public class StorageService {
             String uploadUrl = String.format("%s/storage/v1/object/%s/%s",
                     supabaseUrl, bucketName, filename);
 
-            // Unirest загрузка
             HttpResponse<String> response = Unirest.post(uploadUrl)
-                    .header("apikey", supabaseKey)
-                    .header("Authorization", "Bearer " + supabaseKey)
+                    .header("apikey", anonKey)                    // ← anon key
+                    .header("Authorization", "Bearer " + serviceKey)  // ← service key
                     .header("Content-Type", file.getContentType())
                     .body(file.getBytes())
                     .asString();
@@ -84,8 +86,8 @@ public class StorageService {
                     supabaseUrl, bucketName, key);
 
             HttpResponse<String> response = Unirest.delete(deleteUrl)
-                    .header("apikey", supabaseKey)
-                    .header("Authorization", "Bearer " + supabaseKey)
+                    .header("apikey", anonKey)
+                    .header("Authorization", "Bearer " + serviceKey)
                     .asString();
 
             log.info("Deleted image: {}, status: {}", key, response.getStatus());
