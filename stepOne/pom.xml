@@ -131,6 +131,20 @@
 				<artifactId>jackson-datatype-jts</artifactId>
 				<version>1.2.10</version>
 			</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+			<version>11.3.0</version> <!-- 🆕 Новая версия -->
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+			<version>11.3.0</version> <!-- 🆕 Новая версия -->
+		</dependency>
 
 	</dependencies>
 

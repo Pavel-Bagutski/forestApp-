@@ -1,11 +1,11 @@
 package by.forestapp.stepOne.service;
 
-import kong.unirest.HttpResponse;
-import kong.unirest.Unirest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import kong.unirest.HttpResponse;
+import kong.unirest.Unirest;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -42,9 +42,10 @@ public class StorageService {
             String uploadUrl = String.format("%s/storage/v1/object/%s/%s",
                     supabaseUrl, bucketName, filename);
 
+            log.info("Upload URL: {}", uploadUrl);
+
             HttpResponse<String> response = Unirest.post(uploadUrl)
-                    .header("apikey", anonKey)                    // ← anon key
-                    .header("Authorization", "Bearer " + serviceKey)  // ← service key
+                    .header("Authorization", "Bearer " + serviceKey)
                     .header("Content-Type", file.getContentType())
                     .body(file.getBytes())
                     .asString();
@@ -55,44 +56,17 @@ public class StorageService {
             if (response.getStatus() >= 200 && response.getStatus() < 300) {
                 String publicUrl = String.format("%s/storage/v1/object/public/%s/%s",
                         supabaseUrl, bucketName, filename);
-
-                log.info("Upload SUCCESS! URL: {}", publicUrl);
+                log.info("File uploaded successfully. Public URL: {}", publicUrl);
                 return publicUrl;
             } else {
-                throw new RuntimeException("Upload failed: " + response.getBody());
+                log.error("Upload failed. Status: {}, Body: {}",
+                        response.getStatus(), response.getBody());
+                throw new RuntimeException("Ошибка загрузки: " + response.getBody());
             }
 
         } catch (IOException e) {
-            log.error("Failed to read file", e);
-            throw new RuntimeException("Не удалось прочитать файл", e);
-        } catch (Exception e) {
-            log.error("Upload FAILED: {}", e.getMessage(), e);
-            throw new RuntimeException("Не удалось загрузить изображение: " + e.getMessage(), e);
-        }
-    }
-
-    public void deleteImage(String imageUrl) {
-        try {
-            String prefix = "/storage/v1/object/public/" + bucketName + "/";
-            int index = imageUrl.indexOf(prefix);
-
-            if (index == -1) {
-                log.warn("Could not extract key from URL: {}", imageUrl);
-                return;
-            }
-
-            String key = imageUrl.substring(index + prefix.length());
-            String deleteUrl = String.format("%s/storage/v1/object/%s/%s",
-                    supabaseUrl, bucketName, key);
-
-            HttpResponse<String> response = Unirest.delete(deleteUrl)
-                    .header("apikey", anonKey)
-                    .header("Authorization", "Bearer " + serviceKey)
-                    .asString();
-
-            log.info("Deleted image: {}, status: {}", key, response.getStatus());
-        } catch (Exception e) {
-            log.error("Failed to delete image: {}", imageUrl, e);
+            log.error("IO error during upload", e);
+            throw new RuntimeException("Ошибка чтения файла", e);
         }
     }
 
@@ -112,12 +86,12 @@ public class StorageService {
 
         String ext = getExtension(file.getOriginalFilename());
         if (!ext.matches("jpg|jpeg|png|webp")) {
-            throw new IllegalArgumentException("Формат не поддерживается");
+            throw new IllegalArgumentException("Формат не поддерживается. Используйте: jpg, jpeg, png, webp");
         }
     }
 
     private String getExtension(String filename) {
-        if (filename == null || !filename.contains(".")) {
+        if (filename == null || filename.lastIndexOf(".") == -1) {
             return "jpg";
         }
         return filename.substring(filename.lastIndexOf(".") + 1).toLowerCase();

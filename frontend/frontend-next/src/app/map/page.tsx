@@ -7,7 +7,6 @@ import api from "@/lib/axios";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
 
-// Динамический импорт Map с отключенным SSR (для Leaflet)
 const Map = dynamic(() => import("@/components/Map").then((mod) => mod.Map), {
   ssr: false,
   loading: () => (
@@ -51,7 +50,7 @@ export default function MapPage() {
     };
 
     fetchPlaces();
-  }, [logout, router]); // убрал isClient — dynamic() сам разрулит SSR
+  }, [logout, router]);
 
   const handleImageAdded = (placeId: number, image: PlaceImage) => {
     setPlaces((prev) =>
@@ -84,6 +83,7 @@ export default function MapPage() {
           latitude: placeData.latitude,
           longitude: placeData.longitude,
           address: placeData.address,
+          mushroomType: placeData.mushroomType, // 🆕 Добавлено поле mushroomType
         },
         {
           headers: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -11,80 +11,42 @@ import {
 import { DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useAuthStore } from "@/store/authStore";
-
-// ============================================
-// ТИПЫ
-// ============================================
-
-export interface PlaceImage {
-  id: number;
-  url: string;
-  uploadedAt?: string;
-}
-
-export interface Place {
-  id?: number;
-  title: string;
-  description?: string;
-  latitude: number;
-  longitude: number;
-  address?: string;
-  mushroomType?: string;
-  images?: PlaceImage[];
-  createdAt?: string;
-}
-
-// Словарь для отображения типов грибов
-const MUSHROOM_TYPES: Record<string, string> = {
-  white: "Белый гриб",
-  boletus: "Подберёзовик",
-  chanterelle: "Лисички",
-  aspen: "Подосиновик",
-  russula: "Сыроежка",
-  honey: "Опята",
-  morel: "Сморчок",
-  truffle: "Трюфель",
-  other: "Другой",
-};
+import { MapCluster, Place, PlaceImage } from "./MapCluster";
 
 // ============================================
 // ИКОНКИ
 // ============================================
 
-const createIcon = (color: string, size: number) =>
-  new DivIcon({
-    className: "custom-marker",
-    html: `  
-    <div style="  
-      width: ${size}px;  
-      height: ${size}px;  
-      background: ${color};  
-      border: 3px solid white;  
-      border-radius: 50% 50% 50% 0;  
-      transform: rotate(-45deg);  
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);  
-      display: flex;  
-      align-items: center;  
-      justify-content: center;  
-      font-size: 20px;  
-      cursor: pointer;  
-    ">  
-      <span style="transform: rotate(45deg);">🍄</span>  
-    </div>  
+const newPlaceIcon = new DivIcon({
+  className: "custom-marker",
+  html: `      
+    <div style="      
+      width: 50px;      
+      height: 50px;      
+      background: #ef4444;      
+      border: 3px solid white;      
+      border-radius: 50% 50% 50% 0;      
+      transform: rotate(-45deg);      
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);      
+      display: flex;      
+      align-items: center;      
+      justify-content: center;      
+      font-size: 20px;      
+      cursor: pointer;      
+    ">      
+      <span style="transform: rotate(45deg);">🍄</span>      
+    </div>      
   `,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-    popupAnchor: [0, -(size + 5)],
-  });
-
-const newPlaceIcon = createIcon("#ef4444", 50);
-const existingPlaceIcon = createIcon("#22c55e", 40);
+  iconSize: [50, 50],
+  iconAnchor: [25, 50],
+  popupAnchor: [0, -55],
+});
 
 // ============================================
 // КОМПОНЕНТ: Загрузка изображения
 // ============================================
 
-const ImageUpload = memo(function ImageUpload({
+export const ImageUpload = memo(function ImageUpload({
   placeId,
   onUpload,
   token,
@@ -312,7 +274,6 @@ const PopupForm = memo(function PopupForm({
         }
       }
 
-      // Очистка формы
       setTitle("");
       setDescription("");
       setAddress("");
@@ -346,12 +307,16 @@ const PopupForm = memo(function PopupForm({
         className="w-full border p-2 mb-2 rounded text-sm bg-white"
         disabled={isSubmitting}
       >
-        <option value="">Выберите тип гриба</option>
-        {Object.entries(MUSHROOM_TYPES).map(([key, label]) => (
-          <option key={key} value={key}>
-            {label}
-          </option>
-        ))}
+        <option value="">Выберите тип гриба (не обязательно)</option>
+        <option value="white">Белый гриб</option>
+        <option value="boletus">Подберёзовик</option>
+        <option value="chanterelle">Лисички</option>
+        <option value="aspen">Подосиновик</option>
+        <option value="russula">Сыроежка</option>
+        <option value="honey">Опята</option>
+        <option value="morel">Сморчок</option>
+        <option value="truffle">Трюфель</option>
+        <option value="other">Другой</option>
       </select>
 
       <div className="relative mb-2">
@@ -367,12 +332,16 @@ const PopupForm = memo(function PopupForm({
       </div>
 
       <textarea
-        placeholder="Описание..."
+        placeholder="Описание (какие грибы, когда собирали)..."
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        className="w-full border p-2 mb-2 rounded text-sm h-20 resize-none"
+        className="w-full border p-2 mb-1 rounded text-sm h-20 resize-none"
         disabled={isSubmitting}
+        maxLength={500}
       />
+      <p className="text-xs text-gray-400 mb-2">
+        {description.length}/500 символов
+      </p>
 
       <div className="mb-3">
         <label className="block text-sm text-gray-600 mb-1">
@@ -401,6 +370,7 @@ const PopupForm = memo(function PopupForm({
                   type="button"
                   onClick={() => handleRemoveFile(index)}
                   className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
+                  disabled={isSubmitting}
                 >
                   ✕
                 </button>
@@ -408,6 +378,10 @@ const PopupForm = memo(function PopupForm({
             ))}
           </div>
         )}
+      </div>
+
+      <div className="mb-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+        📍 {lat.toFixed(6)}, {lng.toFixed(6)}
       </div>
 
       <div className="flex gap-2">
@@ -432,95 +406,71 @@ const PopupForm = memo(function PopupForm({
 });
 
 // ============================================
-// КОМПОНЕНТ: Попап для СУЩЕСТВУЮЩЕГО места
+// КОМПОНЕНТ: Маркер нового места
 // ============================================
 
-const PlacePopup = memo(function PlacePopup({
-  place,
+const NewPlaceMarker = memo(function NewPlaceMarker({
+  position,
+  onSubmit,
+  onCancel,
   token,
   onImageAdded,
 }: {
-  place: Place;
+  position: { lat: number; lng: number };
+  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
+  onCancel: () => void;
   token: string | null;
-  onImageAdded: (placeId: number, image: PlaceImage) => void;
+  onImageAdded?: (placeId: number, image: PlaceImage) => void;
 }) {
-  const [showAllPhotos, setShowAllPhotos] = useState(false);
-  const images = place.images || [];
-  const hasImages = images.length > 0;
+  const markerRef = useRef<any>(null);
 
-  const handleShowPhotos = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowAllPhotos(true);
-  };
+  useEffect(() => {
+    markerRef.current?.openPopup();
+  }, []);
 
   return (
-    <div className="min-w-[250px] max-w-[300px]">
-      {hasImages && images[0]?.url ? (
-        <div className="mb-3">
-          <img
-            src={images[0].url}
-            alt={place.title}
-            className="w-full h-32 object-cover rounded-lg"
-          />
-          {images.length > 1 && !showAllPhotos && (
-            <button
-              onClick={handleShowPhotos}
-              className="text-xs text-blue-600 mt-1 hover:underline"
-            >
-              +{images.length - 1} фото ещё
-            </button>
-          )}
-
-          {showAllPhotos && images.length > 1 && (
-            <div className="grid grid-cols-2 gap-1 mt-2">
-              {images
-                .slice(1)
-                .map(
-                  (img) =>
-                    img?.url && (
-                      <img
-                        key={img.id}
-                        src={img.url}
-                        alt="Фото места"
-                        className="w-full h-20 object-cover rounded"
-                      />
-                    ),
-                )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="mb-3 p-4 bg-gray-100 rounded-lg text-center text-gray-500 text-sm">
-          Нет фото
-        </div>
-      )}
-
-      <h3 className="font-bold text-lg">{place.title}</h3>
-
-      {place.mushroomType && (
-        <p className="text-sm text-gray-600 mt-1">
-          🍄 {MUSHROOM_TYPES[place.mushroomType] || place.mushroomType}
-        </p>
-      )}
-
-      {place.address && (
-        <p className="text-sm text-gray-600 mt-1">📍 {place.address}</p>
-      )}
-
-      {place.description && (
-        <p className="text-sm mt-2 text-gray-700">{place.description}</p>
-      )}
-
-      {token && place.id && (
-        <ImageUpload
-          placeId={place.id}
+    <Marker
+      ref={markerRef}
+      position={[position.lat, position.lng]}
+      icon={newPlaceIcon}
+      draggable={false}
+    >
+      <Popup closeButton={true} autoClose={false} closeOnClick={false}>
+        <PopupForm
+          lat={position.lat}
+          lng={position.lng}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
           token={token}
-          onUpload={(image) => onImageAdded(place.id!, image)}
+          onImageAdded={onImageAdded}
         />
-      )}
-    </div>
+      </Popup>
+    </Marker>
   );
 });
+
+// ============================================
+// КОМПОНЕНТ: Обработчик кликов по карте
+// ============================================
+
+function MapClickHandler({
+  onPositionChange,
+  token,
+}: {
+  onPositionChange: (pos: { lat: number; lng: number }) => void;
+  token: string | null;
+}) {
+  useMapEvents({
+    click(e) {
+      if (!token) {
+        alert("Войдите в систему, чтобы добавлять места");
+        return;
+      }
+      onPositionChange(e.latlng);
+    },
+  });
+  return null;
+}
 
 // ============================================
 // ОСНОВНОЙ КОМПОНЕНТ: Map
@@ -540,6 +490,10 @@ export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
   const MapClickHandler = () => {
     useMapEvents({
       click: (e) => {
+        if (!token) {
+          alert("Войдите в систему, чтобы добавлять места");
+          return;
+        }
         setNewPlacePos([e.latlng.lat, e.latlng.lng]);
       },
     });
@@ -565,6 +519,7 @@ export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
 
         <MapClickHandler />
 
+        {/* Маркер нового места (вне кластеризации) */}
         {newPlacePos && (
           <Marker position={newPlacePos} icon={newPlaceIcon}>
             <Popup>
@@ -584,22 +539,11 @@ export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
           </Marker>
         )}
 
-        {places.map((place) => (
-          <Marker
-            key={place.id}
-            position={[place.latitude, place.longitude]}
-            icon={existingPlaceIcon}
-          >
-            <Popup>
-              <PlacePopup
-                place={place}
-                token={token}
-                onImageAdded={onImageAdded}
-              />
-            </Popup>
-          </Marker>
-        ))}
+        {/* Кластеризация существующих мест */}
+        <MapCluster places={places} token={token} onImageAdded={onImageAdded} />
       </MapContainer>
     </div>
   );
 }
+
+export type { PlaceImage, Place };

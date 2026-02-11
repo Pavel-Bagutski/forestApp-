@@ -1,35 +1,32 @@
--- Создание таблицы типов грибов
-CREATE TABLE mushroom_types (
+-- Создание таблицы типов грибов (если не существует)
+CREATE TABLE IF NOT EXISTS mushroom_types (
     id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    latin_name VARCHAR(100),
-    category VARCHAR(50) NOT NULL,
-    icon_url VARCHAR(1000)
+    name VARCHAR(200) NOT NULL UNIQUE,
+    image_url VARCHAR(1000),
+    description TEXT
 );
 
--- Создание связующей таблицы многие-ко-многим
-CREATE TABLE place_mushroom_types (
-    place_id BIGINT NOT NULL,
-    mushroom_type_id BIGINT NOT NULL,
-    PRIMARY KEY (place_id, mushroom_type_id),
-    FOREIGN KEY (place_id) REFERENCES mushroom_places(id) ON DELETE CASCADE,
-    FOREIGN KEY (mushroom_type_id) REFERENCES mushroom_types(id) ON DELETE CASCADE
-);
+-- Добавление колонки в места (если не существует)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'mushroom_places' AND column_name = 'mushroom_type_id'
+    ) THEN
+        ALTER TABLE mushroom_places
+        ADD COLUMN mushroom_type_id BIGINT REFERENCES mushroom_types(id);
+    END IF;
+END $$;
 
--- Добавление индексов для производительности
-CREATE INDEX idx_place_mushroom_types_place ON place_mushroom_types(place_id);
-CREATE INDEX idx_place_mushroom_types_type ON place_mushroom_types(mushroom_type_id);
+-- Индекс для быстрого поиска (если не существует)
+CREATE INDEX IF NOT EXISTS idx_mushroom_places_type ON mushroom_places(mushroom_type_id);
 
--- Вставка начальных данных (популярные грибы Беларуси)
-INSERT INTO mushroom_types (name, latin_name, category) VALUES
-('Белый гриб', 'Boletus edulis', 'EDIBLE'),
-('Подберёзовик', 'Leccinum scabrum', 'EDIBLE'),
-('Подосиновик', 'Leccinum aurantiacum', 'EDIBLE'),
-('Лисички', 'Cantharellus cibarius', 'EDIBLE'),
-('Опята', 'Armillaria mellea', 'EDIBLE'),
-('Маслята', 'Suillus luteus', 'EDIBLE'),
-('Сыроежки', 'Russula', 'EDIBLE'),
-('Грузди', 'Lactarius', 'CONDITIONALLY_EDIBLE'),
-('Волнушки', 'Lactarius torminosus', 'CONDITIONALLY_EDIBLE'),
-('Мухомор красный', 'Amanita muscaria', 'POISONOUS'),
-('Бледная поганка', 'Amanita phalloides', 'POISONOUS');
+-- Начальные данные: типы грибов (INSERT IGNORE аналог)
+INSERT INTO mushroom_types (name, image_url, description)
+VALUES
+('Белый гриб', 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Boletus_edulis_%28Tottoli%29.jpg/640px-Boletus_edulis_%28Tottoli%29.jpg', 'Царь грибов, самый ценный и вкусный'),
+('Подберёзовик', 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Leccinum_scabrum_%28Schaeff.%29_Singer_580051.jpg/640px-Leccinum_scabrum_%28Schaeff.%29_Singer_580051.jpg', 'Растёт под берёзами, отличный вкус'),
+('Лисички', 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Chanterelle_Cantharellus_cibarius.jpg/640px-Chanterelle_Cantharellus_cibarius.jpg', 'Ярко-жёлтые, неперепутываемые грибы'),
+('Подосиновик', 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Leccinum_aurantiacum_%28Schaeff.%29_Singer_580055.jpg/640px-Leccinum_aurantiacum_%28Schaeff.%29_Singer_580055.jpg', 'Красная шляпка, растёт под осинами'),
+('Сыроежка', 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Russula_vesca_%28xndr%29.jpg/640px-Russula_vesca_%28xndr%29.jpg', 'Хрупкие грибы с ломкой ножкой')
+ON CONFLICT (name) DO NOTHING;
