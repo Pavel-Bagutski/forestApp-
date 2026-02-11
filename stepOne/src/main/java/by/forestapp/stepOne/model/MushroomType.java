@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "mushroom_types")
@@ -14,13 +14,14 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@ToString(exclude = "places")
 public class MushroomType {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 100, unique = true)
     private String name; // "Белый гриб", "Подберёзовик"
 
     @Column(length = 100)
@@ -33,8 +34,9 @@ public class MushroomType {
     @Column(length = 1000)
     private String iconUrl;
 
-    @ManyToMany(mappedBy = "mushroomTypes")
-    @JsonIgnoreProperties("mushroomTypes")
+    // 🍄 Один тип → много мест (обратная сторона связи)
+    @OneToMany(mappedBy = "mushroomType", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
-    private Set<MushroomPlace> places = new HashSet<>();
+    @JsonIgnoreProperties({"mushroomType", "hibernateLazyInitializer", "handler"})
+    private List<MushroomPlace> places = new ArrayList<>();
 }

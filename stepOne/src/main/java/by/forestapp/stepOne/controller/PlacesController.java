@@ -1,218 +1,126 @@
 package by.forestapp.stepOne.controller;
 
+import by.forestapp.stepOne.dto.MushroomPlaceRequest;
+import by.forestapp.stepOne.dto.MushroomPlaceResponse;
 import by.forestapp.stepOne.model.EdibilityCategory;
 import by.forestapp.stepOne.model.MushroomPlace;
-import by.forestapp.stepOne.model.PlaceImage;
 import by.forestapp.stepOne.model.User;
 import by.forestapp.stepOne.repository.MushroomPlaceRepository;
-import by.forestapp.stepOne.repository.PlaceImageRepository;
-import by.forestapp.stepOne.repository.UserRepository;
-import by.forestapp.stepOne.service.StorageService;
+import by.forestapp.stepOne.repository.MushroomTypeRepository;
+import by.forestapp.stepOne.service.MushroomPlaceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/places")
 @RequiredArgsConstructor
 public class PlacesController {
 
-    private final StorageService storageService;
+    private final MushroomPlaceService placeService;
     private final MushroomPlaceRepository placeRepository;
-    private final PlaceImageRepository placeImageRepository;
-    private final UserRepository userRepository;
+    private final MushroomTypeRepository typeRepository;
 
-    // 🆕 ОБНОВЛЕННЫЙ метод с фильтрацией
     @GetMapping
-    public List<MushroomPlace> getAllPlaces(
-            @RequestParam(required = false) List<Long> mushroomTypeIds,
-            @RequestParam(required = false) EdibilityCategory category) {
-
-        if (mushroomTypeIds != null && !mushroomTypeIds.isEmpty()) {
-            return placeRepository.findByMushroomTypesIdIn(mushroomTypeIds);
-        }
-        if (category != null) {
-            return placeRepository.findByMushroomTypesCategory(category);
-        }
-        return placeRepository.findAllWithImages();
+    public List<MushroomPlaceResponse> getAllPlaces() {
+        return placeRepository.findAllWithImages().stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<MushroomPlace> getPlace(@PathVariable Long id) {
+    public ResponseEntity<MushroomPlaceResponse> getPlace(@PathVariable Long id) {
         return placeRepository.findByIdWithImages(id)
+                .map(this::convertToResponse)
                 .map(ResponseEntity::ok)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/my")
+    public List<MushroomPlaceResponse> getMyPlaces(@AuthenticationPrincipal User user) {
+        return placeRepository.findByOwnerIdWithImages(user.getId()).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    // ✅ Исправлено: mushroomTypes -> mushroomType
+    @GetMapping("/by-category/{category}")
+    public List<MushroomPlaceResponse> getByCategory(@PathVariable EdibilityCategory category) {
+        return placeRepository.findByMushroomTypeCategory(category).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    // ✅ Исправлено: mushroomTypes -> mushroomType
+    @GetMapping("/by-type/{typeId}")
+    public List<MushroomPlaceResponse> getByType(@PathVariable Long typeId) {
+        return placeRepository.findByMushroomTypeId(typeId).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @GetMapping("/recent")
+    public List<MushroomPlaceResponse> getRecent(@RequestParam(defaultValue = "10") int limit) {
+        return placeRepository.findRecentWithImages(PageRequest.of(0, limit)).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<MushroomPlace> createPlace(
+    public ResponseEntity<MushroomPlaceResponse> createPlace(
             @Valid @RequestBody MushroomPlaceRequest request,
-            Authentication authentication) {
+            @AuthenticationPrincipal User user) {
 
-        String email = authentication.getName();
-        User owner = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Пользователь не найден"));
-
-        MushroomPlace place = MushroomPlace.builder()
-                .title(request.getTitle())
-                .description(request.getDescription())
-                .latitude(request.getLatitude())
-                .longitude(request.getLongitude())
-                .address(request.getAddress())
-                .imageUrl(request.getImageUrl())
-                .owner(owner)
-                .build();
-
-        MushroomPlace saved = placeRepository.save(place);
-        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        MushroomPlace place = placeService.createPlace(request, user);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(convertToResponse(place));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<MushroomPlace> updatePlace(
+    public ResponseEntity<MushroomPlaceResponse> updatePlace(
             @PathVariable Long id,
             @Valid @RequestBody MushroomPlaceRequest request,
-            Authentication authentication) {
+            @AuthenticationPrincipal User user) {
 
-        MushroomPlace place = placeRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        if (!place.getOwner().getEmail().equals(authentication.getName())
-                && !authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-
-        place.setTitle(request.getTitle());
-        place.setDescription(request.getDescription());
-        place.setLatitude(request.getLatitude());
-        place.setLongitude(request.getLongitude());
-        place.setAddress(request.getAddress());
-        place.setImageUrl(request.getImageUrl());
-
-        MushroomPlace updated = placeRepository.save(place);
-        return ResponseEntity.ok(updated);
+        MushroomPlace place = placeService.updatePlace(id, request, user);
+        return ResponseEntity.ok(convertToResponse(place));
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<?> deletePlace(@PathVariable Long id, Authentication authentication) {
-        MushroomPlace place = placeRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        if (!place.getOwner().getEmail().equals(authentication.getName())
-                && !authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Нет прав на удаление"));
-        }
-
-        List<PlaceImage> images = placeImageRepository.findByPlaceId(id);
-        images.forEach(img -> storageService.deleteImage(img.getUrl()));
-
-        placeRepository.delete(place);
-        return ResponseEntity.ok(Map.of("message", "Место удалено"));
+    public ResponseEntity<Void> deletePlace(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        placeService.deletePlace(id, user);
+        return ResponseEntity.noContent().build();
     }
 
-    @PostMapping(value = "/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    @Transactional
-    public ResponseEntity<?> uploadImage(
-            @PathVariable Long id,
-            @RequestParam("file") MultipartFile file,
-            Authentication authentication) {
-
-        MushroomPlace place = placeRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        if (!place.getOwner().getEmail().equals(authentication.getName())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Вы не владелец этого места"));
-        }
-
-        try {
-            String imageUrl = storageService.uploadImage(file, id);
-
-            PlaceImage placeImage = PlaceImage.builder()
-                    .url(imageUrl)
-                    .place(place)
-                    .uploadedAt(LocalDateTime.now())
-                    .build();
-            placeImageRepository.save(placeImage);
-
-            return ResponseEntity.ok(Map.of(
-                    "id", placeImage.getId(),
-                    "url", imageUrl,
-                    "message", "Изображение загружено"
-            ));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Ошибка сервера"));
-        }
-    }
-
-    @GetMapping("/{id}/images")
-    public ResponseEntity<List<PlaceImage>> getImages(@PathVariable Long id) {
-        List<PlaceImage> images = placeImageRepository.findByPlaceId(id);
-        return ResponseEntity.ok(images);
-    }
-
-    @DeleteMapping("/{id}/images/{imageId}")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<?> deleteImage(
-            @PathVariable Long id,
-            @PathVariable Long imageId,
-            Authentication authentication) {
-
-        PlaceImage image = placeImageRepository.findById(imageId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Изображение не найдено"));
-
-        if (!image.getPlace().getOwner().getEmail().equals(authentication.getName())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
-
-        storageService.deleteImage(image.getUrl());
-        placeImageRepository.delete(image);
-
-        return ResponseEntity.ok(Map.of("message", "Изображение удалено"));
-    }
-
-    public static class MushroomPlaceRequest {
-        private String title;
-        private String description;
-        private Double latitude;
-        private Double longitude;
-        private String address;
-        private String imageUrl;
-
-        public String getTitle() { return title; }
-        public void setTitle(String title) { this.title = title; }
-
-        public String getDescription() { return description; }
-        public void setDescription(String description) { this.description = description; }
-
-        public Double getLatitude() { return latitude; }
-        public void setLatitude(Double latitude) { this.latitude = latitude; }
-
-        public Double getLongitude() { return longitude; }
-        public void setLongitude(Double longitude) { this.longitude = longitude; }
-
-        public String getAddress() { return address; }
-        public void setAddress(String address) { this.address = address; }
-
-        public String getImageUrl() { return imageUrl; }
-        public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    private MushroomPlaceResponse convertToResponse(MushroomPlace place) {
+        return MushroomPlaceResponse.builder()
+                .id(place.getId())
+                .title(place.getTitle())
+                .description(place.getDescription())
+                .latitude(place.getLatitude())
+                .longitude(place.getLongitude())
+                .address(place.getAddress())
+                .imageUrl(place.getImageUrl())
+                .createdAt(place.getCreatedAt())
+                .ownerId(place.getOwner().getId())
+                .ownerUsername(place.getOwner().getUsername())
+                // ✅ Добавлено: тип гриба
+                .mushroomType(place.getMushroomType() != null ?
+                        place.getMushroomType().getName() : null)
+                .images(place.getImages().stream()
+                        .map(img -> MushroomPlaceResponse.ImageResponse.builder()
+                                .id(img.getId())
+                                .url(img.getUrl())
+                                .uploadedAt(img.getUploadedAt())
+                                .build())
+                        .collect(Collectors.toList()))
+                .build();
     }
 }

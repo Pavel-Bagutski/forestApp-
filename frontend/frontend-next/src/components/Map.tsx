@@ -29,9 +29,23 @@ export interface Place {
   latitude: number;
   longitude: number;
   address?: string;
+  mushroomType?: string;
   images?: PlaceImage[];
   createdAt?: string;
 }
+
+// Словарь для отображения типов грибов
+const MUSHROOM_TYPES: Record<string, string> = {
+  white: "Белый гриб",
+  boletus: "Подберёзовик",
+  chanterelle: "Лисички",
+  aspen: "Подосиновик",
+  russula: "Сыроежка",
+  honey: "Опята",
+  morel: "Сморчок",
+  truffle: "Трюфель",
+  other: "Другой",
+};
 
 // ============================================
 // ИКОНКИ
@@ -83,49 +97,52 @@ const ImageUpload = memo(function ImageUpload({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !token) return;
-
-    if (!file.type.startsWith("image/")) {
-      alert("Пожалуйста, выберите изображение");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Файл слишком большой (максимум 5MB)");
-      return;
-    }
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0 || !token) return;
 
     setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${placeId}/images`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        },
-      );
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Ошибка загрузки");
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        alert(`${file.name}: Пожалуйста, выберите изображение`);
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`${file.name}: Файл слишком большой (максимум 5MB)`);
+        continue;
       }
 
-      const data = await res.json();
-      onUpload({ id: data.id, url: data.url });
-      alert("✅ Фото загружено!");
-    } catch (err: any) {
-      console.error("Upload error:", err);
-      alert("❌ " + (err.message || "Ошибка загрузки"));
-    } finally {
-      setIsUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${placeId}/images`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          },
+        );
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Ошибка загрузки");
+        }
+
+        const data = await res.json();
+        onUpload({ id: data.id, url: data.url });
+      } catch (err: any) {
+        console.error(`Upload error for ${file.name}:`, err);
+        alert(`❌ ${file.name}: ${err.message || "Ошибка загрузки"}`);
+      }
     }
+
+    alert("✅ Фото загружены!");
+    setIsUploading(false);
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   return (
@@ -135,6 +152,7 @@ const ImageUpload = memo(function ImageUpload({
         type="file"
         accept="image/jpeg,image/png,image/webp"
         onChange={handleFileSelect}
+        multiple
         className="hidden"
       />
 
@@ -172,8 +190,9 @@ const PopupForm = memo(function PopupForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [mushroomType, setMushroomType] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -210,29 +229,34 @@ const PopupForm = memo(function PopupForm({
   }, [lat, lng]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const files = Array.from(e.target.files || []);
+
+    const validFiles = files.filter((file) => {
       if (!file.type.startsWith("image/")) {
-        alert("Пожалуйста, выберите изображение");
-        return;
+        alert(`${file.name}: Пожалуйста, выберите изображение`);
+        return false;
       }
       if (file.size > 5 * 1024 * 1024) {
-        alert("Файл слишком большой (максимум 5MB)");
-        return;
+        alert(`${file.name}: Файл слишком большой (максимум 5MB)`);
+        return false;
       }
+      return true;
+    });
 
-      setSelectedFile(file);
+    setSelectedFiles((prev) => [...prev, ...validFiles]);
+
+    validFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
+        setPreviewUrls((prev) => [...prev, reader.result as string]);
       };
       reader.readAsDataURL(file);
-    }
+    });
   };
 
-  const handleRemoveFile = () => {
-    setSelectedFile(null);
-    setPreviewUrl(null);
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -251,45 +275,50 @@ const PopupForm = memo(function PopupForm({
         address,
         latitude: lat,
         longitude: lng,
+        mushroomType,
       };
 
       const createdPlace = await onSubmit(placeData);
 
-      if (selectedFile && createdPlace?.id) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
+      if (selectedFiles.length > 0 && createdPlace?.id) {
+        for (const file of selectedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
 
-        const uploadRes = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${createdPlace.id}/images`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            body: formData,
-          },
-        );
+          try {
+            const uploadRes = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${createdPlace.id}/images`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+                body: formData,
+              },
+            );
 
-        if (!uploadRes.ok) {
-          console.error("Не удалось загрузить фото, но место создано");
-        } else {
-          const uploadData = await uploadRes.json();
-          console.log("Фото загружено:", uploadData.url);
-
-          if (onImageAdded) {
-            onImageAdded(createdPlace.id, {
-              id: uploadData.id,
-              url: uploadData.url,
-            });
+            if (uploadRes.ok) {
+              const uploadData = await uploadRes.json();
+              if (onImageAdded) {
+                onImageAdded(createdPlace.id, {
+                  id: uploadData.id,
+                  url: uploadData.url,
+                });
+              }
+            }
+          } catch (err) {
+            console.error(`Ошибка загрузки ${file.name}:`, err);
           }
         }
       }
 
+      // Очистка формы
       setTitle("");
       setDescription("");
       setAddress("");
-      setSelectedFile(null);
-      setPreviewUrl(null);
+      setMushroomType("");
+      setSelectedFiles([]);
+      setPreviewUrls([]);
     } catch (err) {
       console.error("Ошибка при создании места:", err);
     } finally {
@@ -310,6 +339,20 @@ const PopupForm = memo(function PopupForm({
         required
         disabled={isSubmitting}
       />
+
+      <select
+        value={mushroomType}
+        onChange={(e) => setMushroomType(e.target.value)}
+        className="w-full border p-2 mb-2 rounded text-sm bg-white"
+        disabled={isSubmitting}
+      >
+        <option value="">Выберите тип гриба</option>
+        {Object.entries(MUSHROOM_TYPES).map(([key, label]) => (
+          <option key={key} value={key}>
+            {label}
+          </option>
+        ))}
+      </select>
 
       <div className="relative mb-2">
         <input
@@ -332,37 +375,37 @@ const PopupForm = memo(function PopupForm({
       />
 
       <div className="mb-3">
-        <label className="block text-sm text-gray-600 mb-1">Фото:</label>
+        <label className="block text-sm text-gray-600 mb-1">
+          Фото ({selectedFiles.length} выбрано):
+        </label>
 
-        {!selectedFile ? (
-          <div className="relative">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              disabled={isSubmitting}
-            />
-            <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP до 5MB</p>
-          </div>
-        ) : (
-          <div className="relative">
-            {previewUrl && (
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-full h-24 object-cover rounded mb-2"
-              />
-            )}
-            <button
-              type="button"
-              onClick={handleRemoveFile}
-              className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
-              disabled={isSubmitting}
-            >
-              ✕
-            </button>
-            <p className="text-xs text-green-600">✓ Фото выбрано</p>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleFileChange}
+          multiple
+          className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 mb-2"
+          disabled={isSubmitting}
+        />
+
+        {selectedFiles.length > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            {previewUrls.map((url, index) => (
+              <div key={index} className="relative">
+                <img
+                  src={url}
+                  alt={`Preview ${index + 1}`}
+                  className="w-full h-20 object-cover rounded"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveFile(index)}
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -454,6 +497,12 @@ const PlacePopup = memo(function PlacePopup({
 
       <h3 className="font-bold text-lg">{place.title}</h3>
 
+      {place.mushroomType && (
+        <p className="text-sm text-gray-600 mt-1">
+          🍄 {MUSHROOM_TYPES[place.mushroomType] || place.mushroomType}
+        </p>
+      )}
+
       {place.address && (
         <p className="text-sm text-gray-600 mt-1">📍 {place.address}</p>
       )}
@@ -474,7 +523,7 @@ const PlacePopup = memo(function PlacePopup({
 });
 
 // ============================================
-// ОСНОВНОЙ КОМПОНЕНТ: Map (ВСТАВИТЬ СЮДА)
+// ОСНОВНОЙ КОМПОНЕНТ: Map
 // ============================================
 
 interface MapProps {
