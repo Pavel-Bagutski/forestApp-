@@ -11,6 +11,10 @@ import {
 import { DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useAuthStore } from "@/store/authStore";
+import { MushroomType } from "@/types/mushroom";
+import api from "@/lib/axios";
+import MushroomTypeSelector from "./MushroomTypeSelector";
+import MultiImageUpload from "./MultiImageUpload";
 
 // ============================================
 // ТИПЫ
@@ -30,6 +34,7 @@ export interface Place {
   longitude: number;
   address?: string;
   images?: PlaceImage[];
+  mushroomTypes?: number[];
   createdAt?: string;
 }
 
@@ -40,23 +45,23 @@ export interface Place {
 const createIcon = (color: string, size: number) =>
   new DivIcon({
     className: "custom-marker",
-    html: `
-    <div style="
-      width: ${size}px;
-      height: ${size}px;
-      background: ${color};
-      border: 3px solid white;
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      cursor: pointer;
-    ">
-      <span style="transform: rotate(45deg);">🍄</span>
-    </div>
+    html: `  
+    <div style="  
+      width: ${size}px;  
+      height: ${size}px;  
+      background: ${color};  
+      border: 3px solid white;  
+      border-radius: 50% 50% 50% 0;  
+      transform: rotate(-45deg);  
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);  
+      display: flex;  
+      align-items: center;  
+      justify-content: center;  
+      font-size: 20px;  
+      cursor: pointer;  
+    ">  
+      <span style="transform: rotate(45deg);">🍄</span>  
+    </div>  
   `,
     iconSize: [size, size],
     iconAnchor: [size / 2, size],
@@ -100,29 +105,20 @@ const ImageUpload = memo(function ImageUpload({
       const formData = new FormData();
       formData.append("file", file);
 
-      // 🆕 Используем axios или полный URL
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${placeId}/images`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
+      const res = await api.post(`/api/places/${placeId}/images`, formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-      );
+      });
 
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Ошибка загрузки");
-      }
-
-      const data = await res.json();
+      const data = res.data;
       onUpload({ id: data.id, url: data.url });
       alert("✅ Фото загружено!");
     } catch (err: any) {
       console.error("Upload error:", err);
-      alert("❌ " + (err.message || "Ошибка загрузки"));
+      const message =
+        err.response?.data?.error || err.message || "Ошибка загрузки";
+      alert("❌ " + message);
     } finally {
       setIsUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -173,8 +169,10 @@ const PopupForm = memo(function PopupForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedMushroomTypes, setSelectedMushroomTypes] = useState<number[]>(
+    [],
+  );
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -197,44 +195,16 @@ const PopupForm = memo(function PopupForm({
               p.includes("посёлок") ||
               p.includes("агрогородок"),
           );
-
           const formatted = [region, district, city]
             .filter(Boolean)
             .slice(0, 3)
             .join(", ");
-
           setAddress(formatted || parts.slice(0, 2).join(", "));
         }
       })
       .catch(console.error)
       .finally(() => setIsLoadingAddress(false));
   }, [lat, lng]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith("image/")) {
-        alert("Пожалуйста, выберите изображение");
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        alert("Файл слишком большой (максимум 5MB)");
-        return;
-      }
-
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleRemoveFile = () => {
-    setSelectedFile(null);
-    setPreviewUrl(null);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,36 +222,39 @@ const PopupForm = memo(function PopupForm({
         address,
         latitude: lat,
         longitude: lng,
+        mushroomTypes: selectedMushroomTypes,
       };
 
       const createdPlace = await onSubmit(placeData);
 
-      if (selectedFile && createdPlace?.id) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
+      // Загрузка всех фото по одному
+      if (selectedFiles.length > 0 && createdPlace?.id) {
+        for (const file of selectedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
 
-        const uploadRes = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${createdPlace.id}/images`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            body: formData,
-          },
-        );
+          try {
+            const uploadRes = await api.post(
+              `/api/places/${createdPlace.id}/images`,
+              formData,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            );
 
-        if (!uploadRes.ok) {
-          console.error("Не удалось загрузить фото, но место создано");
-        } else {
-          const uploadData = await uploadRes.json();
-          console.log("Фото загружено:", uploadData.url);
+            const uploadData = uploadRes.data;
+            console.log("Фото загружено:", uploadData.url);
 
-          if (onImageAdded) {
-            onImageAdded(createdPlace.id, {
-              id: uploadData.id,
-              url: uploadData.url,
-            });
+            if (onImageAdded) {
+              onImageAdded(createdPlace.id, {
+                id: uploadData.id,
+                url: uploadData.url,
+              });
+            }
+          } catch (err) {
+            console.error("Ошибка загрузки фото:", err);
           }
         }
       }
@@ -289,8 +262,8 @@ const PopupForm = memo(function PopupForm({
       setTitle("");
       setDescription("");
       setAddress("");
-      setSelectedFile(null);
-      setPreviewUrl(null);
+      setSelectedFiles([]);
+      setSelectedMushroomTypes([]);
     } catch (err) {
       console.error("Ошибка при создании места:", err);
     } finally {
@@ -299,7 +272,10 @@ const PopupForm = memo(function PopupForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-72 p-2">
+    <form
+      onSubmit={handleSubmit}
+      className="w-80 p-3 max-h-[80vh] overflow-y-auto"
+    >
       <h3 className="font-bold mb-3 text-lg">🍄 Новое место</h3>
 
       <input
@@ -333,40 +309,14 @@ const PopupForm = memo(function PopupForm({
       />
 
       <div className="mb-3">
-        <label className="block text-sm text-gray-600 mb-1">Фото:</label>
+        <MushroomTypeSelector
+          selectedTypes={selectedMushroomTypes}
+          onChange={setSelectedMushroomTypes}
+        />
+      </div>
 
-        {!selectedFile ? (
-          <div className="relative">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              disabled={isSubmitting}
-            />
-            <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP до 5MB</p>
-          </div>
-        ) : (
-          <div className="relative">
-            {/* 🆕 ПРОВЕРКА: показываем img только если previewUrl не пустой */}
-            {previewUrl && (
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-full h-24 object-cover rounded mb-2"
-              />
-            )}
-            <button
-              type="button"
-              onClick={handleRemoveFile}
-              className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
-              disabled={isSubmitting}
-            >
-              ✕
-            </button>
-            <p className="text-xs text-green-600">✓ Фото выбрано</p>
-          </div>
-        )}
+      <div className="mb-3">
+        <MultiImageUpload onFilesChange={setSelectedFiles} maxFiles={5} />
       </div>
 
       <div className="flex gap-2">

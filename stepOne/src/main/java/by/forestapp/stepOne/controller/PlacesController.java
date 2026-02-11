@@ -1,5 +1,6 @@
 package by.forestapp.stepOne.controller;
 
+import by.forestapp.stepOne.model.EdibilityCategory;
 import by.forestapp.stepOne.model.MushroomPlace;
 import by.forestapp.stepOne.model.PlaceImage;
 import by.forestapp.stepOne.model.User;
@@ -18,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
-import org.hibernate.Hibernate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,25 +34,28 @@ public class PlacesController {
     private final PlaceImageRepository placeImageRepository;
     private final UserRepository userRepository;
 
-    // ============================================
-    // CRUD для мест
-    // ============================================
-
-    // 1. Все могут видеть список точек (для карты)
+    // 🆕 ОБНОВЛЕННЫЙ метод с фильтрацией
     @GetMapping
-    public List<MushroomPlace> getAllPlaces() {
-        return placeRepository.findAllWithImages(); // Вместо findAll()
+    public List<MushroomPlace> getAllPlaces(
+            @RequestParam(required = false) List<Long> mushroomTypeIds,
+            @RequestParam(required = false) EdibilityCategory category) {
+
+        if (mushroomTypeIds != null && !mushroomTypeIds.isEmpty()) {
+            return placeRepository.findByMushroomTypesIdIn(mushroomTypeIds);
+        }
+        if (category != null) {
+            return placeRepository.findByMushroomTypesCategory(category);
+        }
+        return placeRepository.findAllWithImages();
     }
 
-    // 2. Детали одной точки (все могут смотреть)
     @GetMapping("/{id}")
     public ResponseEntity<MushroomPlace> getPlace(@PathVariable Long id) {
-        return placeRepository.findByIdWithImages(id) // Вместо findById()
+        return placeRepository.findByIdWithImages(id)
                 .map(ResponseEntity::ok)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
     }
 
-    // 3. Создать новую точку — только авторизованные пользователи (USER или ADMIN)
     @PostMapping
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<MushroomPlace> createPlace(
@@ -77,7 +80,6 @@ public class PlacesController {
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
-    // 4. Обновить место — только владелец или ADMIN
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<MushroomPlace> updatePlace(
@@ -88,7 +90,6 @@ public class PlacesController {
         MushroomPlace place = placeRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
-        // Проверка владельца (ADMIN может редактировать любое)
         if (!place.getOwner().getEmail().equals(authentication.getName())
                 && !authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
@@ -105,20 +106,17 @@ public class PlacesController {
         return ResponseEntity.ok(updated);
     }
 
-    // 5. Удалить место — только владелец или ADMIN
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<?> deletePlace(@PathVariable Long id, Authentication authentication) {
         MushroomPlace place = placeRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
-        // Проверка владельца
         if (!place.getOwner().getEmail().equals(authentication.getName())
                 && !authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Нет прав на удаление"));
         }
 
-        // Удаляем все фото из хранилища
         List<PlaceImage> images = placeImageRepository.findByPlaceId(id);
         images.forEach(img -> storageService.deleteImage(img.getUrl()));
 
@@ -126,11 +124,6 @@ public class PlacesController {
         return ResponseEntity.ok(Map.of("message", "Место удалено"));
     }
 
-    // ============================================
-    // Работа с изображениями
-    // ============================================
-
-    // Загрузка фото к существующему месту
     @PostMapping(value = "/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     @Transactional
@@ -142,7 +135,6 @@ public class PlacesController {
         MushroomPlace place = placeRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
-        // Проверка владельца
         if (!place.getOwner().getEmail().equals(authentication.getName())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Вы не владелец этого места"));
@@ -151,7 +143,6 @@ public class PlacesController {
         try {
             String imageUrl = storageService.uploadImage(file, id);
 
-            // Сохраняем в БД
             PlaceImage placeImage = PlaceImage.builder()
                     .url(imageUrl)
                     .place(place)
@@ -164,7 +155,6 @@ public class PlacesController {
                     "url", imageUrl,
                     "message", "Изображение загружено"
             ));
-
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
@@ -173,14 +163,12 @@ public class PlacesController {
         }
     }
 
-    // Список фото места
     @GetMapping("/{id}/images")
     public ResponseEntity<List<PlaceImage>> getImages(@PathVariable Long id) {
         List<PlaceImage> images = placeImageRepository.findByPlaceId(id);
         return ResponseEntity.ok(images);
     }
 
-    // Удаление фото
     @DeleteMapping("/{id}/images/{imageId}")
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<?> deleteImage(
@@ -191,23 +179,15 @@ public class PlacesController {
         PlaceImage image = placeImageRepository.findById(imageId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Изображение не найдено"));
 
-        // Проверка владельца
         if (!image.getPlace().getOwner().getEmail().equals(authentication.getName())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
-        // Удаляем из Supabase
         storageService.deleteImage(image.getUrl());
-
-        // Удаляем из БД
         placeImageRepository.delete(image);
 
         return ResponseEntity.ok(Map.of("message", "Изображение удалено"));
     }
-
-    // ============================================
-    // DTO
-    // ============================================
 
     public static class MushroomPlaceRequest {
         private String title;

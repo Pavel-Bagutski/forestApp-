@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import axios from "axios";
+import api from "@/lib/axios"; // 🆕 Используем наш кастомный axios
 import { Place, PlaceImage } from "@/components/Map";
 import { useAuthStore } from "@/store/authStore";
+import { useRouter } from "next/navigation"; // 🆕 Добавляем router
 
 const Map = dynamic(() => import("@/components/Map"), {
   ssr: false,
@@ -22,7 +23,8 @@ export default function MapPage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
-  const { token } = useAuthStore();
+  const { token, logout } = useAuthStore(); // 🆕 Добавляем logout
+  const router = useRouter(); // 🆕 Добавляем router
 
   useEffect(() => {
     setIsClient(true);
@@ -34,7 +36,7 @@ export default function MapPage() {
     const fetchPlaces = async () => {
       try {
         setIsLoading(true);
-        const res = await axios.get("http://localhost:8080/api/places");
+        const res = await api.get("/api/places"); // 🆕 Используем api вместо axios
         setPlaces(res.data);
       } catch (err) {
         console.error("Ошибка при загрузке мест:", err);
@@ -46,7 +48,6 @@ export default function MapPage() {
     fetchPlaces();
   }, [isClient]);
 
-  // 🆕 Этот callback вызывается когда фото загружено (и для новых, и для существующих мест)
   const handleImageAdded = (placeId: number, image: PlaceImage) => {
     setPlaces((prev) =>
       prev.map((place) => {
@@ -70,8 +71,9 @@ export default function MapPage() {
     }
 
     try {
-      const res = await axios.post(
-        "http://localhost:8080/api/places",
+      const res = await api.post(
+        // 🆕 Используем api вместо axios
+        "/api/places",
         {
           title: placeData.title,
           description: placeData.description,
@@ -92,14 +94,22 @@ export default function MapPage() {
 
       return newPlace;
     } catch (err: any) {
-      console.error("Ошибка при добавлении места:", err);
-      const message =
-        err.response?.data?.message || "Не удалось добавить место";
-      alert("❌ Ошибка: " + message);
+      // 🆕 Улучшенная обработка ошибок
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        logout();
+        alert("Сессия истекла. Пожалуйста, войдите снова");
+        router.push("/login");
+      } else {
+        console.error("Ошибка при добавлении места:", err);
+        const message =
+          err.response?.data?.message || "Не удалось добавить место";
+        alert("❌ Ошибка: " + message);
+      }
       throw err;
     }
   };
 
+  // Остальной код без изменений...
   if (!isClient) {
     return (
       <div className="max-w-7xl mx-auto p-4">
