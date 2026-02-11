@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import api from "@/lib/axios"; // 🆕 Заменили axios на api
-import { Place, PlaceImage } from "@/components/Map";
+import type { Place, PlaceImage } from "@/components/Map";
+import api from "@/lib/axios";
 import { useAuthStore } from "@/store/authStore";
-import { useRouter } from "next/navigation"; // 🆕 Добавили router
+import { useRouter } from "next/navigation";
 
-const Map = dynamic(() => import("@/components/Map"), {
+// Динамический импорт Map с отключенным SSR (для Leaflet)
+const Map = dynamic(() => import("@/components/Map").then((mod) => mod.Map), {
   ssr: false,
   loading: () => (
     <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
@@ -22,31 +23,35 @@ const Map = dynamic(() => import("@/components/Map"), {
 export default function MapPage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isClient, setIsClient] = useState(false);
-  const { token, logout } = useAuthStore(); // 🆕 Добавили logout
-  const router = useRouter(); // 🆕 Добавили router
+  const [error, setError] = useState<string | null>(null);
+  const { token, logout } = useAuthStore();
+  const router = useRouter();
 
   useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isClient) return;
-
     const fetchPlaces = async () => {
       try {
         setIsLoading(true);
-        const res = await api.get("/api/places"); // 🆕 Используем api вместо axios
+        setError(null);
+        const res = await api.get("/api/places");
         setPlaces(res.data);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Ошибка при загрузке мест:", err);
+        const errorMessage =
+          err.response?.data?.message ||
+          "Не удалось загрузить места. Проверьте подключение.";
+        setError(errorMessage);
+
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          logout();
+          router.push("/login");
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchPlaces();
-  }, [isClient]);
+  }, [logout, router]); // убрал isClient — dynamic() сам разрулит SSR
 
   const handleImageAdded = (placeId: number, image: PlaceImage) => {
     setPlaces((prev) =>
@@ -72,8 +77,7 @@ export default function MapPage() {
 
     try {
       const res = await api.post(
-        // 🆕 Используем api вместо axios
-        "/api/places", // 🆕 Убрали полный URL
+        "/api/places",
         {
           title: placeData.title,
           description: placeData.description,
@@ -94,7 +98,6 @@ export default function MapPage() {
 
       return newPlace;
     } catch (err: any) {
-      // 🆕 Обработка истекшего токена
       if (err.response?.status === 401 || err.response?.status === 403) {
         logout();
         alert("Сессия истекла. Пожалуйста, войдите снова");
@@ -109,23 +112,17 @@ export default function MapPage() {
     }
   };
 
-  if (!isClient) {
-    return (
-      <div className="max-w-7xl mx-auto p-4">
-        <h1 className="text-2xl font-bold mb-4">Карта грибных мест 🍄</h1>
-        <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
-          <div className="text-center">
-            <div className="animate-bounce text-4xl mb-2">🍄</div>
-            <p>Загрузка...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-7xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Карта грибных мест 🍄</h1>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+          <p className="font-semibold">Ошибка загрузки</p>
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+
       <div className="rounded-xl overflow-hidden shadow-2xl border border-gray-200 bg-white">
         <Map
           places={places}

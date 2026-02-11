@@ -405,7 +405,6 @@ const PlacePopup = memo(function PlacePopup({
   const images = place.images || [];
   const hasImages = images.length > 0;
 
-  // 🆕 Обработчик с остановкой распространения события
   const handleShowPhotos = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowAllPhotos(true);
@@ -473,3 +472,85 @@ const PlacePopup = memo(function PlacePopup({
     </div>
   );
 });
+
+// ============================================
+// ОСНОВНОЙ КОМПОНЕНТ: Map (ВСТАВИТЬ СЮДА)
+// ============================================
+
+interface MapProps {
+  places: Place[];
+  onAddPlace: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
+  onImageAdded: (placeId: number, image: PlaceImage) => void;
+  isLoading?: boolean;
+}
+
+export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
+  const [newPlacePos, setNewPlacePos] = useState<[number, number] | null>(null);
+  const { token } = useAuthStore();
+
+  const MapClickHandler = () => {
+    useMapEvents({
+      click: (e) => {
+        setNewPlacePos([e.latlng.lat, e.latlng.lng]);
+      },
+    });
+    return null;
+  };
+
+  return (
+    <div className="relative h-[600px] w-full">
+      {isLoading && (
+        <div className="absolute inset-0 bg-white/80 z-[1000] flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-bounce text-4xl mb-2">🍄</div>
+            <p>Загрузка мест...</p>
+          </div>
+        </div>
+      )}
+
+      <MapContainer center={[53.9, 27.56]} zoom={7} className="h-full w-full">
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <MapClickHandler />
+
+        {newPlacePos && (
+          <Marker position={newPlacePos} icon={newPlaceIcon}>
+            <Popup>
+              <PopupForm
+                lat={newPlacePos[0]}
+                lng={newPlacePos[1]}
+                onSubmit={async (data) => {
+                  const place = await onAddPlace(data);
+                  setNewPlacePos(null);
+                  return place;
+                }}
+                onCancel={() => setNewPlacePos(null)}
+                token={token}
+                onImageAdded={onImageAdded}
+              />
+            </Popup>
+          </Marker>
+        )}
+
+        {places.map((place) => (
+          <Marker
+            key={place.id}
+            position={[place.latitude, place.longitude]}
+            icon={existingPlaceIcon}
+          >
+            <Popup>
+              <PlacePopup
+                place={place}
+                token={token}
+                onImageAdded={onImageAdded}
+              />
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
+  );
+}
