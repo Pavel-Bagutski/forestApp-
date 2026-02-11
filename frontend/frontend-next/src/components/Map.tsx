@@ -11,10 +11,6 @@ import {
 import { DivIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useAuthStore } from "@/store/authStore";
-import { MushroomType } from "@/types/mushroom";
-import api from "@/lib/axios";
-import MushroomTypeSelector from "./MushroomTypeSelector";
-import MultiImageUpload from "./MultiImageUpload";
 
 // ============================================
 // ТИПЫ
@@ -34,7 +30,6 @@ export interface Place {
   longitude: number;
   address?: string;
   images?: PlaceImage[];
-  mushroomTypes?: number[];
   createdAt?: string;
 }
 
@@ -72,7 +67,7 @@ const newPlaceIcon = createIcon("#ef4444", 50);
 const existingPlaceIcon = createIcon("#22c55e", 40);
 
 // ============================================
-// КОМПОНЕНТ: Загрузка изображения (для существующего места)
+// КОМПОНЕНТ: Загрузка изображения
 // ============================================
 
 const ImageUpload = memo(function ImageUpload({
@@ -105,20 +100,28 @@ const ImageUpload = memo(function ImageUpload({
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await api.post(`/api/places/${placeId}/images`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${placeId}/images`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
         },
-      });
+      );
 
-      const data = res.data;
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Ошибка загрузки");
+      }
+
+      const data = await res.json();
       onUpload({ id: data.id, url: data.url });
       alert("✅ Фото загружено!");
     } catch (err: any) {
       console.error("Upload error:", err);
-      const message =
-        err.response?.data?.error || err.message || "Ошибка загрузки";
-      alert("❌ " + message);
+      alert("❌ " + (err.message || "Ошибка загрузки"));
     } finally {
       setIsUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -148,7 +151,7 @@ const ImageUpload = memo(function ImageUpload({
 });
 
 // ============================================
-// КОМПОНЕНТ: Форма в попапе (для НОВОГО места)
+// КОМПОНЕНТ: Форма в попапе
 // ============================================
 
 const PopupForm = memo(function PopupForm({
@@ -169,10 +172,8 @@ const PopupForm = memo(function PopupForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [selectedMushroomTypes, setSelectedMushroomTypes] = useState<number[]>(
-    [],
-  );
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -195,16 +196,44 @@ const PopupForm = memo(function PopupForm({
               p.includes("посёлок") ||
               p.includes("агрогородок"),
           );
+
           const formatted = [region, district, city]
             .filter(Boolean)
             .slice(0, 3)
             .join(", ");
+
           setAddress(formatted || parts.slice(0, 2).join(", "));
         }
       })
       .catch(console.error)
       .finally(() => setIsLoadingAddress(false));
   }, [lat, lng]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith("image/")) {
+        alert("Пожалуйста, выберите изображение");
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert("Файл слишком большой (максимум 5MB)");
+        return;
+      }
+
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    setPreviewUrl(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,39 +251,36 @@ const PopupForm = memo(function PopupForm({
         address,
         latitude: lat,
         longitude: lng,
-        mushroomTypes: selectedMushroomTypes,
       };
 
       const createdPlace = await onSubmit(placeData);
 
-      // Загрузка всех фото по одному
-      if (selectedFiles.length > 0 && createdPlace?.id) {
-        for (const file of selectedFiles) {
-          const formData = new FormData();
-          formData.append("file", file);
+      if (selectedFile && createdPlace?.id) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
 
-          try {
-            const uploadRes = await api.post(
-              `/api/places/${createdPlace.id}/images`,
-              formData,
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              },
-            );
+        const uploadRes = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/places/${createdPlace.id}/images`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          },
+        );
 
-            const uploadData = uploadRes.data;
-            console.log("Фото загружено:", uploadData.url);
+        if (!uploadRes.ok) {
+          console.error("Не удалось загрузить фото, но место создано");
+        } else {
+          const uploadData = await uploadRes.json();
+          console.log("Фото загружено:", uploadData.url);
 
-            if (onImageAdded) {
-              onImageAdded(createdPlace.id, {
-                id: uploadData.id,
-                url: uploadData.url,
-              });
-            }
-          } catch (err) {
-            console.error("Ошибка загрузки фото:", err);
+          if (onImageAdded) {
+            onImageAdded(createdPlace.id, {
+              id: uploadData.id,
+              url: uploadData.url,
+            });
           }
         }
       }
@@ -262,8 +288,8 @@ const PopupForm = memo(function PopupForm({
       setTitle("");
       setDescription("");
       setAddress("");
-      setSelectedFiles([]);
-      setSelectedMushroomTypes([]);
+      setSelectedFile(null);
+      setPreviewUrl(null);
     } catch (err) {
       console.error("Ошибка при создании места:", err);
     } finally {
@@ -272,10 +298,7 @@ const PopupForm = memo(function PopupForm({
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="w-80 p-3 max-h-[80vh] overflow-y-auto"
-    >
+    <form onSubmit={handleSubmit} className="w-72 p-2">
       <h3 className="font-bold mb-3 text-lg">🍄 Новое место</h3>
 
       <input
@@ -309,14 +332,39 @@ const PopupForm = memo(function PopupForm({
       />
 
       <div className="mb-3">
-        <MushroomTypeSelector
-          selectedTypes={selectedMushroomTypes}
-          onChange={setSelectedMushroomTypes}
-        />
-      </div>
+        <label className="block text-sm text-gray-600 mb-1">Фото:</label>
 
-      <div className="mb-3">
-        <MultiImageUpload onFilesChange={setSelectedFiles} maxFiles={5} />
+        {!selectedFile ? (
+          <div className="relative">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              disabled={isSubmitting}
+            />
+            <p className="text-xs text-gray-400 mt-1">JPG, PNG, WebP до 5MB</p>
+          </div>
+        ) : (
+          <div className="relative">
+            {previewUrl && (
+              <img
+                src={previewUrl}
+                alt="Preview"
+                className="w-full h-24 object-cover rounded mb-2"
+              />
+            )}
+            <button
+              type="button"
+              onClick={handleRemoveFile}
+              className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+              disabled={isSubmitting}
+            >
+              ✕
+            </button>
+            <p className="text-xs text-green-600">✓ Фото выбрано</p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -357,6 +405,12 @@ const PlacePopup = memo(function PlacePopup({
   const images = place.images || [];
   const hasImages = images.length > 0;
 
+  // 🆕 Обработчик с остановкой распространения события
+  const handleShowPhotos = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAllPhotos(true);
+  };
+
   return (
     <div className="min-w-[250px] max-w-[300px]">
       {hasImages && images[0]?.url ? (
@@ -368,7 +422,7 @@ const PlacePopup = memo(function PlacePopup({
           />
           {images.length > 1 && !showAllPhotos && (
             <button
-              onClick={() => setShowAllPhotos(true)}
+              onClick={handleShowPhotos}
               className="text-xs text-blue-600 mt-1 hover:underline"
             >
               +{images.length - 1} фото ещё
@@ -419,258 +473,3 @@ const PlacePopup = memo(function PlacePopup({
     </div>
   );
 });
-
-// ============================================
-// КОМПОНЕНТ: Маркер нового места
-// ============================================
-
-const NewPlaceMarker = memo(function NewPlaceMarker({
-  position,
-  onSubmit,
-  onCancel,
-  token,
-  onImageAdded,
-}: {
-  position: { lat: number; lng: number };
-  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
-  onCancel: () => void;
-  token: string | null;
-  onImageAdded?: (placeId: number, image: PlaceImage) => void;
-}) {
-  const markerRef = useRef<any>(null);
-  const popupRef = useRef<any>(null); // 🆕 Добавь ref для popup
-
-  useEffect(() => {
-    markerRef.current?.openPopup();
-
-    // 🆕 Останавливаем распространение событий клика
-    if (popupRef.current) {
-      const popupElement = popupRef.current.getElement();
-      if (popupElement) {
-        popupElement.addEventListener("click", (e: MouseEvent) => {
-          e.stopPropagation();
-        });
-      }
-    }
-  }, []);
-
-  return (
-    <Marker
-      ref={markerRef}
-      position={[position.lat, position.lng]}
-      icon={newPlaceIcon}
-      draggable={false}
-    >
-      <Popup
-        ref={popupRef} // 🆕 Добавь ref
-        closeButton={true}
-        autoClose={false}
-        closeOnClick={false}
-      >
-        <PopupForm
-          lat={position.lat}
-          lng={position.lng}
-          onSubmit={onSubmit}
-          onCancel={onCancel}
-          token={token}
-          onImageAdded={onImageAdded}
-        />
-      </Popup>
-    </Marker>
-  );
-});
-
-// ============================================
-// КОМПОНЕНТ: Обработчик кликов по карте
-// ============================================
-
-const PlacePopup = memo(function PlacePopup({
-  place,
-  token,
-  onImageAdded,
-}: {
-  place: Place;
-  token: string | null;
-  onImageAdded: (placeId: number, image: PlaceImage) => void;
-}) {
-  const [showAllPhotos, setShowAllPhotos] = useState(false);
-  const images = place.images || [];
-  const hasImages = images.length > 0;
-
-  // 🆕 Функция для остановки распространения события
-  const handleShowPhotos = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowAllPhotos(true);
-  };
-
-  return (
-    <div className="min-w-[250px] max-w-[300px]">
-      {hasImages && images[0]?.url ? (
-        <div className="mb-3">
-          <img
-            src={images[0].url}
-            alt={place.title}
-            className="w-full h-32 object-cover rounded-lg"
-          />
-          {images.length > 1 && !showAllPhotos && (
-            <button
-              onClick={handleShowPhotos} // 🆕 Используем новый обработчик
-              className="text-xs text-blue-600 mt-1 hover:underline"
-            >
-              +{images.length - 1} фото ещё
-            </button>
-          )}
-          {/* остальной код без изменений */}
-        </div>
-      ) : (
-        <div className="mb-3 p-4 bg-gray-100 rounded-lg text-center text-gray-500 text-sm">
-          Нет фото
-        </div>
-      )}
-
-      <h3 className="font-bold text-lg">{place.title}</h3>
-
-      {place.address && (
-        <p className="text-sm text-gray-600 mt-1">📍 {place.address}</p>
-      )}
-
-      {place.description && (
-        <p className="text-sm mt-2 text-gray-700">{place.description}</p>
-      )}
-
-      {token && place.id && (
-        <ImageUpload
-          placeId={place.id}
-          token={token}
-          onUpload={(image) => onImageAdded(place.id!, image)}
-        />
-      )}
-    </div>
-  );
-});
-
-// ============================================
-// ОСНОВНОЙ КОМПОНЕНТ: Map
-// ============================================
-
-interface MapProps {
-  places?: Place[];
-  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt">) => Promise<Place>;
-  onImageAdded?: (placeId: number, image: PlaceImage) => void;
-  isLoading?: boolean;
-}
-
-export default function Map({
-  places = [],
-  onAddPlace,
-  onImageAdded,
-  isLoading = false,
-}: MapProps) {
-  const [newPosition, setNewPosition] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
-  const { token } = useAuthStore();
-
-  const handlePositionChange = useCallback(
-    (pos: { lat: number; lng: number }) => {
-      if (!token) {
-        alert("Войдите в систему, чтобы добавлять места");
-        return;
-      }
-      setNewPosition(pos);
-    },
-    [token],
-  );
-
-  const handleSubmit = useCallback(
-    async (data: Omit<Place, "id" | "createdAt">): Promise<Place> => {
-      if (!onAddPlace) throw new Error("No onAddPlace handler");
-
-      try {
-        const createdPlace = await onAddPlace(data);
-        setNewPosition(null);
-        return createdPlace;
-      } catch (err) {
-        console.error("Ошибка при добавлении:", err);
-        throw err;
-      }
-    },
-    [onAddPlace],
-  );
-
-  const handleCancel = useCallback(() => {
-    setNewPosition(null);
-  }, []);
-
-  const handleImageAdded = useCallback(
-    (placeId: number, image: PlaceImage) => {
-      if (onImageAdded) {
-        onImageAdded(placeId, image);
-      }
-    },
-    [onImageAdded],
-  );
-
-  if (isLoading) {
-    return (
-      <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
-        <div className="text-center">
-          <div className="text-4xl mb-2">🍄</div>
-          <p>Загрузка...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <MapContainer
-        center={[53.9, 27.5667]}
-        zoom={7}
-        className="h-[600px] w-full rounded-lg"
-      >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-        {places.map((place) => (
-          <Marker
-            key={place.id}
-            position={[place.latitude, place.longitude]}
-            icon={existingPlaceIcon}
-          >
-            <Popup>
-              <PlacePopup
-                place={place}
-                token={token}
-                onImageAdded={handleImageAdded}
-              />
-            </Popup>
-          </Marker>
-        ))}
-
-        {newPosition && (
-          <NewPlaceMarker
-            position={newPosition}
-            onSubmit={handleSubmit}
-            onCancel={handleCancel}
-            token={token}
-            onImageAdded={handleImageAdded}
-          />
-        )}
-
-        <MapClickHandler onPositionChange={handlePositionChange} />
-      </MapContainer>
-
-      <div className="absolute bottom-4 right-4 bg-white p-3 rounded-lg shadow-md z-[1000] text-sm">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-4 h-4 bg-green-500 rounded-full"></div>
-          <span>Грибные места</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-red-500 rounded-full"></div>
-          <span>Новое место</span>
-        </div>
-      </div>
-    </div>
-  );
-}
