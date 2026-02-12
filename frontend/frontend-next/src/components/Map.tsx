@@ -525,4 +525,4 @@ export function Map({
 }
 
 export type { PlaceImage, Place };
-export type { MushroomType }; // 🆕 Экспортируем тип
+export type { MushroomType };

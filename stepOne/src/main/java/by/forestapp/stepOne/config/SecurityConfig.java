@@ -4,6 +4,7 @@ import by.forestapp.stepOne.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -35,14 +36,23 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(auth -> auth
+                        // 🆕 Публичные эндпоинты (БЕЗ авторизации) - должны быть ПЕРВЫМИ
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/mushroom-types/**").permitAll()
+
+                        // Админские эндпоинты
                         .requestMatchers("/api/users/**").hasRole("ADMIN")
                         .requestMatchers("/api/user/**").hasRole("USER")
-                        .requestMatchers("/api/places/**").permitAll() // <-- разрешаем всем
-                        .requestMatchers("/api/**").hasRole("USER")
+
+                        // 🆕 Модификация мест только для авторизованных (переопределяем permitAll выше)
+                        .requestMatchers(HttpMethod.POST, "/api/places").hasAnyRole("USER" , "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/places/**").hasAnyRole("USER" , "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/places/**").hasAnyRole("USER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/places/*/images").hasAnyRole("USER", "ADMIN")
+
+                        // Все остальные запросы требуют авторизации
                         .anyRequest().authenticated()
-
-
                 )
 
                 // 🔥 КЛЮЧЕВАЯ СТРОКА
@@ -50,6 +60,22 @@ public class SecurityConfig {
 
         return http.build();
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {

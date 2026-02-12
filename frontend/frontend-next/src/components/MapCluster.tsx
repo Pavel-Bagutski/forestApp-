@@ -16,6 +16,15 @@ export interface PlaceImage {
   uploadedAt?: string;
 }
 
+export interface MushroomType {
+  id: number;
+  name: string;
+  latinName?: string;
+  category?: string;
+  imageUrl?: string;
+  description?: string;
+}
+
 export interface Place {
   id?: number;
   title: string;
@@ -23,11 +32,11 @@ export interface Place {
   latitude: number;
   longitude: number;
   address?: string;
-  mushroomType?: string; // Название типа (для отображения)
+  mushroomType?: MushroomType;
   images?: PlaceImage[];
   createdAt?: string;
-  ownerId?: number; // 🆕 ID владельца
-  ownerUsername?: string; // 🆕 Имя владельца
+  ownerId?: number;
+  ownerUsername?: string;
 }
 
 // ============================================
@@ -101,29 +110,13 @@ const createClusterIcon = (cluster: any) => {
 };
 
 // ============================================
-// КОНСТАНТЫ
-// ============================================
-
-const MUSHROOM_LABELS: Record<string, string> = {
-  white: "Белый гриб",
-  boletus: "Подберёзовик",
-  chanterelle: "Лисички",
-  aspen: "Подосиновик",
-  russula: "Сыроежка",
-  honey: "Опята",
-  morel: "Сморчок",
-  truffle: "Трюфель",
-  other: "Другой",
-};
-
-// ============================================
 // КОМПОНЕНТ: Попап места
 // ============================================
 
 interface PlacePopupProps {
   place: Place;
   token: string | null;
-  currentUserId?: number | null; // 🆕 ID текущего пользователя
+  currentUserId?: number | null;
   onImageAdded: (placeId: number, image: PlaceImage) => void;
 }
 
@@ -135,16 +128,12 @@ const PlacePopup = memo(function PlacePopup({
 }: PlacePopupProps) {
   const [showAllPhotos, setShowAllPhotos] = useState(false);
 
-  // 🆕 ПРОВЕРКА ВЛАДЕЛЬЦА
   const isOwner =
     currentUserId != null &&
     place.ownerId != null &&
     currentUserId === place.ownerId;
 
-  // Определяем название типа гриба
-  const mushroomLabel =
-    place.mushroomType ||
-    (place.mushroomType ? MUSHROOM_LABELS[place.mushroomType] : null);
+  const mushroomLabel = place.mushroomType?.name;
 
   const handlePopupClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -158,7 +147,6 @@ const PlacePopup = memo(function PlacePopup({
 
   return (
     <div className="min-w-[250px] max-w-[300px]" onClick={handlePopupClick}>
-      {/* Галерея фото */}
       {place.images && place.images[0]?.url ? (
         <div className="mb-3">
           <img
@@ -195,7 +183,6 @@ const PlacePopup = memo(function PlacePopup({
         </div>
       )}
 
-      {/* Информация о месте */}
       <h3 className="font-bold text-lg">{place.title}</h3>
 
       {mushroomLabel && (
@@ -214,7 +201,6 @@ const PlacePopup = memo(function PlacePopup({
         </p>
       )}
 
-      {/* 🆕 Информация о владельце */}
       {place.ownerUsername && (
         <p className="text-xs text-gray-500 mt-2">
           👤 {place.ownerUsername}
@@ -228,7 +214,6 @@ const PlacePopup = memo(function PlacePopup({
         </p>
       )}
 
-      {/* Координаты и статистика */}
       <div className="mt-3 pt-2 border-t border-gray-200">
         <p className="text-xs text-gray-500">
           📍 {place.latitude.toFixed(6)}, {place.longitude.toFixed(6)}
@@ -240,7 +225,6 @@ const PlacePopup = memo(function PlacePopup({
         )}
       </div>
 
-      {/* 🆕 ЗАГРУЗКА ФОТО: только для владельца */}
       {token && place.id && isOwner && (
         <ImageUpload
           placeId={place.id}
@@ -259,7 +243,7 @@ const PlacePopup = memo(function PlacePopup({
 interface MapClusterProps {
   places: Place[];
   token: string | null;
-  currentUserId?: number | null; // 🆕
+  currentUserId?: number | null;
   onImageAdded: (placeId: number, image: PlaceImage) => void;
 }
 
