@@ -25,7 +25,7 @@ export default function Navbar() {
             </Link>
 
             <Link
-              href="/add-place"
+              href="/addPlace"
               className="text-gray-700 hover:text-green-600 font-medium transition-colors"
             >
               Добавить место

@@ -1,21 +1,42 @@
-// src/api/mushroomTypeApi.ts
-export interface MushroomType {
+// ============================================
+// ПЕРЕЭКСПОРТ: Делаем MushroomType доступным из types/index.ts
+// ============================================
+export type { MushroomType } from "../api/mushroomTypeApi";
+
+// ============================================
+// ОСТАЛЬНЫЕ ТИПЫ
+// ============================================
+
+import type { MushroomType as MT } from "../api/mushroomTypeApi";
+
+export interface PlaceImage {
   id: number;
-  name: string;
-  latinName?: string;
-  category?: string;
-  imageUrl?: string;
-  description?: string;
+  url: string;
+  uploadedAt?: string;
 }
 
-export async function fetchMushroomTypes(): Promise<MushroomType[]> {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/mushroom-types`
-  );
-  
-  if (!res.ok) {
-    throw new Error("Не удалось загрузить типы грибов");
-  }
-  
-  return res.json();
+export interface Place {
+  id?: number;
+  title: string;
+  description?: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  mushroomType?: MT; // Используем алиас
+  images?: PlaceImage[];
+  createdAt?: string;
+  ownerId?: number;
+  ownerUsername?: string;
+}
+
+export type PlaceFormData = Omit<Place, "id" | "createdAt" | "ownerId" | "ownerUsername"> & {
+  mushroomTypeId?: number;
+};
+
+export interface MapProps {
+  places: Place[];
+  mushroomTypes: MT[]; // Используем алиас
+  onAddPlace: (data: PlaceFormData) => Promise<Place>;
+  onImageAdded: (placeId: number, image: PlaceImage) => void;
+  isLoading?: boolean;
 }
