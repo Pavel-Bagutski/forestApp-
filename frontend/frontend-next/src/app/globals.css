@@ -1,13 +1,5 @@
 @import "tailwindcss";
 
-/* Остальные стили без изменений */
-.leaflet-popup-content-wrapper {
-  border-radius: 12px;
-  padding: 0;
-  overflow: hidden;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-}
-
 .leaflet-popup-content {
   margin: 0;
   width: 300px !important;
@@ -30,12 +22,4 @@
 
 .leaflet-popup-content-wrapper {
   pointer-events: auto !important;
-}
-
-/* Добавить к существующим стилям */
-.leaflet-popup-content button,
-.leaflet-popup-content a {
-  pointer-events: auto !important;
-  position: relative;
-  z-index: 1000;
 }
