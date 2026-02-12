@@ -8,6 +8,8 @@ export type { MushroomType } from "../api/mushroomTypeApi";
 // ============================================
 
 import type { MushroomType as MT } from "../api/mushroomTypeApi";
+// В Map.tsx, MapCluster.tsx, map/page.tsx  
+import { MushroomType, Place, PlaceImage } from "@/types/mushroom";
 
 export interface PlaceImage {
   id: number;
