@@ -1,98 +1,105 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/authStore";
-import api from "@/lib/axios";
-import type { Place, PlaceImage, MushroomType } from "@/types";
+import { useEffect, useState } from "react";
+import { Place, MushroomType } from "@/components/map/Map";
 
-// Динамический импорт карты (без SSR)
-const Map = dynamic(() => import("@/components/map/Map").then((m) => m.Map), {
-  ssr: false,
-  loading: () => (
-    <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
-      <div className="text-center">
-        <div className="animate-bounce text-4xl mb-2">🍄</div>
-        <p>Загрузка карты...</p>
+// Типизируем динамический импорт
+const Map = dynamic(
+  () => import("@/components/map/Map").then((mod) => mod.default),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded-lg">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-gray-600">Загрузка карты...</p>
       </div>
-    </div>
-  ),
-});
+    ),
+  },
+);
 
 export default function MapPage() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [mushroomTypes, setMushroomTypes] = useState<MushroomType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
-  const { token, logout } = useAuthStore();
-  const router = useRouter();
-
-  // Загрузка типов грибов
   useEffect(() => {
-    api
-      .get("/api/mushroom-types")
-      .then((res) => setMushroomTypes(res.data))
-      .catch(console.error);
+    // Получаем токен
+    const storedToken = localStorage.getItem("token");
+    setToken(storedToken);
+
+    // Загружаем данные
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+
+        // Параллельная загрузка мест и типов грибов
+        const [placesRes, typesRes] = await Promise.all([
+          fetch("http://localhost:8080/api/places"),
+          fetch("http://localhost:8080/api/mushroom-types"),
+        ]);
+
+        if (!placesRes.ok) throw new Error("Failed to fetch places");
+        if (!typesRes.ok) throw new Error("Failed to fetch mushroom types");
+
+        const placesData = await placesRes.json();
+        const typesData = await typesRes.json();
+
+        setPlaces(placesData);
+        setMushroomTypes(typesData);
+      } catch (err) {
+        console.error(err);
+        setError("Ошибка загрузки данных");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
   }, []);
 
-  // Загрузка мест (публичная)
-  useEffect(() => {
-    setIsLoading(true);
-    api
-      .get("/api/places")
-      .then((res) => setPlaces(res.data))
-      .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
-  }, []);
+  const handleAddPlace = async (placeData: Omit<Place, "id" | "createdAt">) => {
+    console.log("Add place:", placeData);
+    // TODO: отправить запрос на создание места
+    // Пример:
+    // const res = await fetch("http://localhost:8080/api/places", {
+    //   method: "POST",
+    //   headers: {
+    //     "Content-Type": "application/json",
+    //     Authorization: `Bearer ${token}`,
+    //   },
+    //   body: JSON.stringify(placeData),
+    // });
+    // return res.json();
 
-  // Добавление места (требует авторизации)
-  const handleAddPlace = async (data: any): Promise<Place> => {
-    if (!token) {
-      router.push("/login");
-      throw new Error("Нет авторизации");
-    }
-
-    const res = await api.post("/api/places", data, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const newPlace = res.data;
-    setPlaces((prev) => [...prev, newPlace]);
-    return newPlace;
+    // Временно возвращаем моковый Place
+    return {
+      id: Date.now(),
+      ...placeData,
+      createdAt: new Date().toISOString(),
+    } as Place;
   };
 
-  // Добавление фото к существующему месту
-  const handleImageAdded = (placeId: number, image: PlaceImage) => {
+  const handleImageAdded = (
+    placeId: number,
+    image: import("@/components/map/Map").PlaceImage,
+  ) => {
+    console.log("Image added for place:", placeId, image);
+    // Обновляем список мест, добавляя новое изображение
     setPlaces((prev) =>
-      prev.map((p) =>
-        p.id === placeId ? { ...p, images: [...(p.images || []), image] } : p,
+      prev.map((place) =>
+        place.id === placeId
+          ? { ...place, images: [...(place.images || []), image] }
+          : place,
       ),
     );
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Карта грибных мест 🍄</h1>
-        {!token && (
-          <div className="flex gap-2">
-            <a
-              href="/login"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-            >
-              Войти
-            </a>
-            <a
-              href="/register"
-              className="px-4 py-2 bg-green-600 text-white rounded-lg"
-            >
-              Регистрация
-            </a>
-          </div>
-        )}
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-screen px-4 py-8">
+      <h1 className="text-3xl font-bold mb-6">Карта грибных мест</h1>
 
       {error && (
         <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-lg">
@@ -100,13 +107,15 @@ export default function MapPage() {
         </div>
       )}
 
-      <Map
-        places={places}
-        mushroomTypes={mushroomTypes}
-        onAddPlace={handleAddPlace}
-        onImageAdded={handleImageAdded}
-        isLoading={isLoading}
-      />
+      <div className="w-full flex justify-center">
+        <Map
+          places={places}
+          mushroomTypes={mushroomTypes}
+          onAddPlace={handleAddPlace}
+          onImageAdded={handleImageAdded}
+          isLoading={isLoading}
+        />
+      </div>
 
       {!token && (
         <div className="mt-6 p-4 bg-green-50 rounded-lg text-center">

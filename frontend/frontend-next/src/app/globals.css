@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+/* ============================================
+   СТИЛИ КАРТЫ - УСИЛЕНИЕ ЛЕСОВ И КОНТРАСТА
+   ============================================ */
+
+/* Контейнер карты - усиливаем зелёные тона */
+.leaflet-container {
+  background: #f0f0f0 !important;
+}
+
+/* Tile layer - мягкие фильтры для лесов (снижены на 70%) */
+.leaflet-tile {
+  filter: 
+    /* Лёгкое усиление насыщенности */ saturate(1.09)
+    /* Минимальный контраст */ contrast(1.05) /* Нейтральная яркость */
+    brightness(1) /* Чуть зеленее */ hue-rotate(-2deg) !important;
+}
+
+/* При наведении на карту */
+.leaflet-container:hover .leaflet-tile {
+  filter: saturate(1.12) contrast(1.06) brightness(1.01) hue-rotate(-2deg) !important;
+}
+
+/* УСИЛЕННЫЙ РЕЖИМ ЛЕСОВ (снижен на 70%) */
+.forest-enhanced .leaflet-tile {
+  filter: 
+    /* Умеренная насыщенность */ saturate(1.18)
+    /* Небольшой контраст */ contrast(1.08) /* Чуть светлее */ brightness(1.02)
+    /* Сдвиг к зелёному */ hue-rotate(-3deg) !important;
+}
+
+/* Дополнительный слой для выделения границ лесов */
+.forest-enhanced .leaflet-tile-pane {
+  position: relative;
+}
+
+/* Убран зелёный градиент - был слишком ярким */
+
 .leaflet-popup-content {
   margin: 0;
   width: 300px !important;
@@ -20,6 +57,52 @@
   animation: bounce 1s infinite;
 }
 
+/* ============================================
+   POPUP STYLES
+   ============================================ */
+
+.leaflet-popup-content {
+  pointer-events: auto !important;
+}
+
 .leaflet-popup-content-wrapper {
   pointer-events: auto !important;
+}
+
+.custom-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.marker-inner {
+  border: 3px solid white;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+
+.marker-inner:hover {
+  transform: rotate(-45deg) scale(1.1);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+}
+
+.marker-icon {
+  transform: rotate(45deg);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.marker-new {
+  background: #ef4444 !important;
+}
+
+.marker-existing {
+  background: #22c55e !important;
 }

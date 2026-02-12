@@ -1,9 +1,11 @@
 // src/api/mushroomTypeApi.ts
+export type EdibilityCategory = "EDIBLE" | "CONDITIONALLY_EDIBLE" | "POISONOUS";
+
 export interface MushroomType {
   id: number;
   name: string;
   latinName?: string;
-  category?: string;
+  category?: EdibilityCategory;
   imageUrl?: string;
   description?: string;
 }
