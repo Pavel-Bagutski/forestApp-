@@ -1,13 +1,21 @@
-export enum EdibilityCategory {  
-  EDIBLE = 'EDIBLE',  
-  CONDITIONALLY_EDIBLE = 'CONDITIONALLY_EDIBLE',  
-  POISONOUS = 'POISONOUS'  
-}  
+// src/api/mushroomTypeApi.ts
+export interface MushroomType {
+  id: number;
+  name: string;
+  latinName?: string;
+  category?: string;
+  imageUrl?: string;
+  description?: string;
+}
+
+export async function fetchMushroomTypes(): Promise<MushroomType[]> {
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/mushroom-types`
+  );
   
-export interface MushroomType {  
-  id: number;  
-  name: string;  
-  latinName?: string;  
-  category: EdibilityCategory;  
-  iconUrl?: string;  
+  if (!res.ok) {
+    throw new Error("Не удалось загрузить типы грибов");
+  }
+  
+  return res.json();
 }

@@ -2,10 +2,20 @@
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import type { Place, PlaceImage } from "@/components/Map";
+import type { Place, PlaceImage } from "@/components/MapCluster";
 import api from "@/lib/axios";
 import { useAuthStore } from "@/store/authStore";
 import { useRouter } from "next/navigation";
+
+// 🆕 Интерфейс для типа гриба из API
+interface MushroomType {
+  id: number;
+  name: string;
+  latinName?: string;
+  category?: string;
+  imageUrl?: string;
+  description?: string;
+}
 
 const Map = dynamic(() => import("@/components/Map").then((mod) => mod.Map), {
   ssr: false,
@@ -21,10 +31,25 @@ const Map = dynamic(() => import("@/components/Map").then((mod) => mod.Map), {
 
 export default function MapPage() {
   const [places, setPlaces] = useState<Place[]>([]);
+  const [mushroomTypes, setMushroomTypes] = useState<MushroomType[]>([]); // 🆕
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { token, logout } = useAuthStore();
   const router = useRouter();
+
+  // 🆕 Загрузка типов грибов при монтировании
+  useEffect(() => {
+    const fetchMushroomTypes = async () => {
+      try {
+        const res = await api.get("/api/mushroom-types");
+        setMushroomTypes(res.data);
+      } catch (err) {
+        console.error("Ошибка загрузки типов грибов:", err);
+      }
+    };
+
+    fetchMushroomTypes();
+  }, []);
 
   useEffect(() => {
     const fetchPlaces = async () => {
@@ -66,8 +91,11 @@ export default function MapPage() {
     );
   };
 
+  // 🆕 Изменён интерфейс - принимаем mushroomTypeId вместо mushroomType
   const handlePlaceAdd = async (
-    placeData: Omit<Place, "id" | "createdAt">,
+    placeData: Omit<Place, "id" | "createdAt" | "ownerId" | "ownerUsername"> & {
+      mushroomTypeId?: number;
+    },
   ): Promise<Place> => {
     if (!token) {
       alert("Войдите в систему");
@@ -83,7 +111,7 @@ export default function MapPage() {
           latitude: placeData.latitude,
           longitude: placeData.longitude,
           address: placeData.address,
-          mushroomType: placeData.mushroomType, // 🆕 Добавлено поле mushroomType
+          mushroomTypeId: placeData.mushroomTypeId, // 🆕 Отправляем числовой ID
         },
         {
           headers: {
@@ -126,6 +154,7 @@ export default function MapPage() {
       <div className="rounded-xl overflow-hidden shadow-2xl border border-gray-200 bg-white">
         <Map
           places={places}
+          mushroomTypes={mushroomTypes} // 🆕 Передаём типы грибов
           onAddPlace={handlePlaceAdd}
           onImageAdded={handleImageAdded}
           isLoading={isLoading}

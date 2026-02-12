@@ -2,10 +2,14 @@ package by.forestapp.stepOne.controller;
 
 import by.forestapp.stepOne.model.MushroomPlace;
 import by.forestapp.stepOne.model.MushroomType;
+import by.forestapp.stepOne.model.PlaceImage;
 import by.forestapp.stepOne.model.User;
+import by.forestapp.stepOne.model.EdibilityCategory;
 import by.forestapp.stepOne.repository.MushroomPlaceRepository;
 import by.forestapp.stepOne.repository.MushroomTypeRepository;
 import by.forestapp.stepOne.service.StorageService;
+import lombok.Builder;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -15,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -29,8 +34,11 @@ public class PlacesController {
     private final MushroomTypeRepository mushroomTypeRepository;
     private final StorageService storageService;
 
-    // DTO
     // ============================================
+    // DTO REQUEST
+    // ============================================
+
+    @Data
     public static class MushroomPlaceRequest {
         private String title;
         private String description;
@@ -39,22 +47,46 @@ public class PlacesController {
         private String address;
         private String imageUrl;
         private Long mushroomTypeId;
+    }
 
-        // Getters and Setters
-        public String getTitle() { return title; }
-        public void setTitle(String title) { this.title = title; }
-        public String getDescription() { return description; }
-        public void setDescription(String description) { this.description = description; }
-        public Double getLatitude() { return latitude; }
-        public void setLatitude(Double latitude) { this.latitude = latitude; }
-        public Double getLongitude() { return longitude; }
-        public void setLongitude(Double longitude) { this.longitude = longitude; }
-        public String getAddress() { return address; }
-        public void setAddress(String address) { this.address = address; }
-        public String getImageUrl() { return imageUrl; }
-        public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-        public Long getMushroomTypeId() { return mushroomTypeId; }
-        public void setMushroomTypeId(Long mushroomTypeId) { this.mushroomTypeId = mushroomTypeId; }
+    // ============================================
+    // DTO RESPONSES
+    // ============================================
+
+    @Data
+    @Builder
+    public static class MushroomPlaceResponse {
+        private Long id;
+        private String title;
+        private String description;
+        private Double latitude;
+        private Double longitude;
+        private String address;
+        private String imageUrl;
+        private LocalDateTime createdAt;
+        private Long ownerId;              // 🆕 ID владельца для фронтенда
+        private String ownerUsername;       // 🆕 Имя владельца для отображения
+        private MushroomTypeResponse mushroomType;
+        private List<ImageResponse> images;
+    }
+
+    @Data
+    @Builder
+    public static class MushroomTypeResponse {
+        private Long id;
+        private String name;
+        private String latinName;
+        private EdibilityCategory category;
+        private String imageUrl;
+        private String description;
+    }
+
+    @Data
+    @Builder
+    public static class ImageResponse {
+        private Long id;
+        private String url;
+        private LocalDateTime uploadedAt;
     }
 
     // ============================================
@@ -114,6 +146,8 @@ public class PlacesController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
         User user = (User) authentication.getPrincipal();
+
+        // 🆕 ПРОВЕРКА ВЛАДЕЛЬЦА
         if (!place.getOwner().getId().equals(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Нет прав на редактирование");
         }
@@ -142,6 +176,8 @@ public class PlacesController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
         User user = (User) authentication.getPrincipal();
+
+        // 🆕 ПРОВЕРКА ВЛАДЕЛЬЦА
         if (!place.getOwner().getId().equals(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Нет прав на удаление");
         }
@@ -166,6 +202,8 @@ public class PlacesController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
         User user = (User) authentication.getPrincipal();
+
+        // 🆕 ПРОВЕРКА ВЛАДЕЛЬЦА: только владелец может загружать фото
         if (!place.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Вы не владелец этого места"));
@@ -184,7 +222,7 @@ public class PlacesController {
             return ResponseEntity.ok(Map.of(
                     "id", System.currentTimeMillis(),
                     "url", imageUrl,
-                    "uploadedAt", java.time.LocalDateTime.now().toString()
+                    "uploadedAt", LocalDateTime.now().toString()
             ));
 
         } catch (IllegalArgumentException e) {
@@ -203,7 +241,7 @@ public class PlacesController {
     // ============================================
 
     private MushroomPlaceResponse convertToResponse(MushroomPlace place) {
-        // 🆕 Безопасное получение типа гриба
+        // Безопасное получение типа гриба
         MushroomTypeResponse mushroomTypeResponse = null;
         if (place.getMushroomType() != null) {
             MushroomType mt = place.getMushroomType();
@@ -217,6 +255,7 @@ public class PlacesController {
                     .build();
         }
 
+        // 🆕 Формируем ответ с ownerId и ownerUsername для фронтенда
         return MushroomPlaceResponse.builder()
                 .id(place.getId())
                 .title(place.getTitle())
@@ -226,9 +265,9 @@ public class PlacesController {
                 .address(place.getAddress())
                 .imageUrl(place.getImageUrl())
                 .createdAt(place.getCreatedAt())
-                .ownerId(place.getOwner().getId())
-                .ownerUsername(place.getOwner().getUsername())
-                .mushroomType(mushroomTypeResponse) // 🆕 Может быть null
+                .ownerId(place.getOwner() != null ? place.getOwner().getId() : null)           // 🆕
+                .ownerUsername(place.getOwner() != null ? place.getOwner().getUsername() : null) // 🆕
+                .mushroomType(mushroomTypeResponse)
                 .images(place.getImages() != null ? place.getImages().stream()
                         .map(img -> ImageResponse.builder()
                                 .id(img.getId())
@@ -237,45 +276,5 @@ public class PlacesController {
                                 .build())
                         .collect(Collectors.toList()) : List.of())
                 .build();
-    }
-
-    // ============================================
-    // DTO CLASSES
-    // ============================================
-
-    @lombok.Data
-    @lombok.Builder
-    public static class MushroomPlaceResponse {
-        private Long id;
-        private String title;
-        private String description;
-        private Double latitude;
-        private Double longitude;
-        private String address;
-        private String imageUrl;
-        private java.time.LocalDateTime createdAt;
-        private Long ownerId;
-        private String ownerUsername;
-        private MushroomTypeResponse mushroomType;
-        private List<ImageResponse> images;
-    }
-
-    @lombok.Data
-    @lombok.Builder
-    public static class MushroomTypeResponse {
-        private Long id;
-        private String name;
-        private String latinName;
-        private by.forestapp.stepOne.model.EdibilityCategory category;
-        private String imageUrl;
-        private String description;
-    }
-
-    @lombok.Data
-    @lombok.Builder
-    public static class ImageResponse {
-        private Long id;
-        private String url;
-        private java.time.LocalDateTime uploadedAt;
     }
 }

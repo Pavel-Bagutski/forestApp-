@@ -14,6 +14,20 @@ import { useAuthStore } from "@/store/authStore";
 import { MapCluster, Place, PlaceImage } from "./MapCluster";
 
 // ============================================
+// ИНТЕРФЕЙСЫ
+// ============================================
+
+// 🆕 Интерфейс типа гриба из API
+interface MushroomType {
+  id: number;
+  name: string;
+  latinName?: string;
+  category?: string;
+  imageUrl?: string;
+  description?: string;
+}
+
+// ============================================
 // ИКОНКИ
 // ============================================
 
@@ -42,6 +56,7 @@ const createIcon = (color: string, size: number) =>
     iconAnchor: [size / 2, size],
     popupAnchor: [0, -(size + 5)],
   });
+
 const newPlaceIcon = createIcon("#ef4444", 50);
 const existingPlaceIcon = createIcon("#22c55e", 40);
 
@@ -134,33 +149,42 @@ export const ImageUpload = memo(function ImageUpload({
 });
 
 // ============================================
-// КОМПОНЕНТ: Форма в попапе
+// КОМПОНЕНТ: Форма в попапе (новое место)
 // ============================================
+
+interface PopupFormProps {
+  lat: number;
+  lng: number;
+  mushroomTypes: MushroomType[]; // 🆕 Список типов из API
+  onSubmit: (
+    data: Omit<Place, "id" | "createdAt" | "ownerId" | "ownerUsername"> & {
+      mushroomTypeId?: number;
+    },
+  ) => Promise<Place>;
+  onCancel: () => void;
+  token: string | null;
+  onImageAdded?: (placeId: number, image: PlaceImage) => void;
+}
 
 const PopupForm = memo(function PopupForm({
   lat,
   lng,
+  mushroomTypes,
   onSubmit,
   onCancel,
   token,
   onImageAdded,
-}: {
-  lat: number;
-  lng: number;
-  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
-  onCancel: () => void;
-  token: string | null;
-  onImageAdded?: (placeId: number, image: PlaceImage) => void;
-}) {
+}: PopupFormProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
-  const [mushroomType, setMushroomType] = useState("");
+  const [mushroomTypeId, setMushroomTypeId] = useState<string>(""); // 🆕 ID типа (строка для select)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Автозаполнение адреса по координатам
   useEffect(() => {
     setIsLoadingAddress(true);
     fetch(
@@ -234,17 +258,19 @@ const PopupForm = memo(function PopupForm({
     setIsSubmitting(true);
 
     try {
+      // 🆕 Отправляем mushroomTypeId (число) вместо строки
       const placeData = {
         title,
         description,
         address,
         latitude: lat,
         longitude: lng,
-        mushroomType,
+        mushroomTypeId: mushroomTypeId ? parseInt(mushroomTypeId) : undefined,
       };
 
       const createdPlace = await onSubmit(placeData);
 
+      // Загрузка фото после создания места
       if (selectedFiles.length > 0 && createdPlace?.id) {
         for (const file of selectedFiles) {
           const formData = new FormData();
@@ -277,10 +303,11 @@ const PopupForm = memo(function PopupForm({
         }
       }
 
+      // Сброс формы
       setTitle("");
       setDescription("");
       setAddress("");
-      setMushroomType("");
+      setMushroomTypeId("");
       setSelectedFiles([]);
       setPreviewUrls([]);
     } catch (err) {
@@ -304,22 +331,19 @@ const PopupForm = memo(function PopupForm({
         disabled={isSubmitting}
       />
 
+      {/* 🆕 SELECT С ТИПАМИ ГРИБОВ ИЗ API */}
       <select
-        value={mushroomType}
-        onChange={(e) => setMushroomType(e.target.value)}
+        value={mushroomTypeId}
+        onChange={(e) => setMushroomTypeId(e.target.value)}
         className="w-full border p-2 mb-2 rounded text-sm bg-white"
         disabled={isSubmitting}
       >
         <option value="">Выберите тип гриба (не обязательно)</option>
-        <option value="white">Белый гриб</option>
-        <option value="boletus">Подберёзовик</option>
-        <option value="chanterelle">Лисички</option>
-        <option value="aspen">Подосиновик</option>
-        <option value="russula">Сыроежка</option>
-        <option value="honey">Опята</option>
-        <option value="morel">Сморчок</option>
-        <option value="truffle">Трюфель</option>
-        <option value="other">Другой</option>
+        {mushroomTypes.map((type) => (
+          <option key={type.id} value={type.id}>
+            {type.name}
+          </option>
+        ))}
       </select>
 
       <div className="relative mb-2">
@@ -409,86 +433,31 @@ const PopupForm = memo(function PopupForm({
 });
 
 // ============================================
-// КОМПОНЕНТ: Маркер нового места
-// ============================================
-
-const NewPlaceMarker = memo(function NewPlaceMarker({
-  position,
-  onSubmit,
-  onCancel,
-  token,
-  onImageAdded,
-}: {
-  position: { lat: number; lng: number };
-  onSubmit: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
-  onCancel: () => void;
-  token: string | null;
-  onImageAdded?: (placeId: number, image: PlaceImage) => void;
-}) {
-  const markerRef = useRef<any>(null);
-
-  useEffect(() => {
-    markerRef.current?.openPopup();
-  }, []);
-
-  return (
-    <Marker
-      ref={markerRef}
-      position={[position.lat, position.lng]}
-      icon={newPlaceIcon}
-      draggable={false}
-    >
-      <Popup closeButton={true} autoClose={false} closeOnClick={false}>
-        <PopupForm
-          lat={position.lat}
-          lng={position.lng}
-          onSubmit={onSubmit}
-          onCancel={onCancel}
-          token={token}
-          onImageAdded={onImageAdded}
-        />
-      </Popup>
-    </Marker>
-  );
-});
-
-// ============================================
-// КОМПОНЕНТ: Обработчик кликов по карте
-// ============================================
-
-function MapClickHandler({
-  onPositionChange,
-  token,
-}: {
-  onPositionChange: (pos: { lat: number; lng: number }) => void;
-  token: string | null;
-}) {
-  useMapEvents({
-    click(e) {
-      if (!token) {
-        alert("Войдите в систему, чтобы добавлять места");
-        return;
-      }
-      onPositionChange(e.latlng);
-    },
-  });
-  return null;
-}
-
-// ============================================
 // ОСНОВНОЙ КОМПОНЕНТ: Map
 // ============================================
 
 interface MapProps {
   places: Place[];
-  onAddPlace: (data: Omit<Place, "id" | "createdAt">) => Promise<Place>;
+  mushroomTypes: MushroomType[]; // 🆕
+  onAddPlace: (
+    data: Omit<Place, "id" | "createdAt" | "ownerId" | "ownerUsername"> & {
+      mushroomTypeId?: number;
+    },
+  ) => Promise<Place>;
   onImageAdded: (placeId: number, image: PlaceImage) => void;
   isLoading?: boolean;
 }
 
-export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
+export function Map({
+  places,
+  mushroomTypes, // 🆕
+  onAddPlace,
+  onImageAdded,
+  isLoading,
+}: MapProps) {
   const [newPlacePos, setNewPlacePos] = useState<[number, number] | null>(null);
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  const currentUserId = user?.id;
 
   const MapClickHandler = () => {
     useMapEvents({
@@ -522,13 +491,14 @@ export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
 
         <MapClickHandler />
 
-        {/* Маркер нового места (вне кластеризации) */}
+        {/* Маркер нового места */}
         {newPlacePos && (
           <Marker position={newPlacePos} icon={newPlaceIcon}>
             <Popup>
               <PopupForm
                 lat={newPlacePos[0]}
                 lng={newPlacePos[1]}
+                mushroomTypes={mushroomTypes} // 🆕
                 onSubmit={async (data) => {
                   const place = await onAddPlace(data);
                   setNewPlacePos(null);
@@ -543,10 +513,16 @@ export function Map({ places, onAddPlace, onImageAdded, isLoading }: MapProps) {
         )}
 
         {/* Кластеризация существующих мест */}
-        <MapCluster places={places} token={token} onImageAdded={onImageAdded} />
+        <MapCluster
+          places={places}
+          token={token}
+          currentUserId={currentUserId}
+          onImageAdded={onImageAdded}
+        />
       </MapContainer>
     </div>
   );
 }
 
 export type { PlaceImage, Place };
+export type { MushroomType }; // 🆕 Экспортируем тип

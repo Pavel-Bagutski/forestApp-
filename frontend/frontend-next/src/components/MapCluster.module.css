@@ -1,9 +1,10 @@
-/* Базовый маркер */
+/* Базовый контейнер маркера */
 .custom-marker {
   background: transparent !important;
   border: none !important;
 }
 
+/* Базовый стиль маркера */
 .marker {
   width: 50px;
   height: 50px;
@@ -24,7 +25,7 @@
   transform: rotate(-45deg) scale(1.1);
 }
 
-/* Новое место (красный) */
+/* Новое место (красный маркер) */
 .marker-new {
   width: 60px;
   height: 60px;
@@ -32,7 +33,7 @@
   font-size: 28px;
 }
 
-/* Существующее место (зеленый) */
+/* Существующее место (зеленый маркер) */
 .marker-existing {
   width: 50px;
   height: 50px;
@@ -40,7 +41,7 @@
   font-size: 24px;
 }
 
-/* Анимация появления */
+/* Анимация появления маркеров */
 @keyframes markerAppear {
   from {
     opacity: 0;

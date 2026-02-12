@@ -4,7 +4,11 @@ import { memo, useState } from "react";
 import { Marker, Popup } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import { DivIcon } from "leaflet";
-import { ImageUpload } from "./Map"; // 🆕 Импорт из Map.tsx
+import { ImageUpload } from "./Map";
+
+// ============================================
+// ИНТЕРФЕЙСЫ
+// ============================================
 
 export interface PlaceImage {
   id: number;
@@ -19,12 +23,17 @@ export interface Place {
   latitude: number;
   longitude: number;
   address?: string;
-  mushroomType?: string;
+  mushroomType?: string; // Название типа (для отображения)
   images?: PlaceImage[];
   createdAt?: string;
+  ownerId?: number; // 🆕 ID владельца
+  ownerUsername?: string; // 🆕 Имя владельца
 }
 
-// Иконка для отдельного маркера
+// ============================================
+// ИКОНКИ
+// ============================================
+
 export const existingPlaceIcon = new DivIcon({
   className: "custom-marker",
   html: `    
@@ -50,7 +59,6 @@ export const existingPlaceIcon = new DivIcon({
   popupAnchor: [0, -45],
 });
 
-// Иконка для кластера
 const createClusterIcon = (cluster: any) => {
   const count = cluster.getChildCount();
   let size = 40;
@@ -92,7 +100,10 @@ const createClusterIcon = (cluster: any) => {
   });
 };
 
-// Словарь для отображения типов грибов
+// ============================================
+// КОНСТАНТЫ
+// ============================================
+
 const MUSHROOM_LABELS: Record<string, string> = {
   white: "Белый гриб",
   boletus: "Подберёзовик",
@@ -105,25 +116,49 @@ const MUSHROOM_LABELS: Record<string, string> = {
   other: "Другой",
 };
 
+// ============================================
+// КОМПОНЕНТ: Попап места
+// ============================================
+
 interface PlacePopupProps {
   place: Place;
   token: string | null;
+  currentUserId?: number | null; // 🆕 ID текущего пользователя
   onImageAdded: (placeId: number, image: PlaceImage) => void;
 }
 
-// Компонент попапа для места
 const PlacePopup = memo(function PlacePopup({
   place,
   token,
+  currentUserId,
   onImageAdded,
 }: PlacePopupProps) {
-  const [showAllPhotos, setShowAllPhotos] = useState(false); // 🆕 Добавлено состояние
-  const mushroomLabel = place.mushroomType
-    ? MUSHROOM_LABELS[place.mushroomType] || place.mushroomType
-    : null;
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
+
+  // 🆕 ПРОВЕРКА ВЛАДЕЛЬЦА
+  const isOwner =
+    currentUserId != null &&
+    place.ownerId != null &&
+    currentUserId === place.ownerId;
+
+  // Определяем название типа гриба
+  const mushroomLabel =
+    place.mushroomType ||
+    (place.mushroomType ? MUSHROOM_LABELS[place.mushroomType] : null);
+
+  const handlePopupClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleShowMoreClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowAllPhotos(true);
+  };
 
   return (
-    <div className="min-w-[250px] max-w-[300px]">
+    <div className="min-w-[250px] max-w-[300px]" onClick={handlePopupClick}>
+      {/* Галерея фото */}
       {place.images && place.images[0]?.url ? (
         <div className="mb-3">
           <img
@@ -133,14 +168,14 @@ const PlacePopup = memo(function PlacePopup({
           />
           {place.images.length > 1 && !showAllPhotos && (
             <button
-              onClick={() => setShowAllPhotos(true)}
-              className="text-xs text-blue-600 mt-1 hover:underline"
+              type="button"
+              onClick={handleShowMoreClick}
+              className="text-xs text-blue-600 mt-1 hover:underline cursor-pointer"
             >
               +{place.images.length - 1} фото ещё
             </button>
           )}
 
-          {/* 🆕 Показ всех фото */}
           {showAllPhotos && place.images.length > 1 && (
             <div className="grid grid-cols-2 gap-1 mt-2">
               {place.images.slice(1).map((img) => (
@@ -160,6 +195,7 @@ const PlacePopup = memo(function PlacePopup({
         </div>
       )}
 
+      {/* Информация о месте */}
       <h3 className="font-bold text-lg">{place.title}</h3>
 
       {mushroomLabel && (
@@ -173,21 +209,29 @@ const PlacePopup = memo(function PlacePopup({
       )}
 
       {place.description && (
-        <p className="text-sm mt-2 text-gray-700">{place.description}</p>
-      )}
-
-      {/* 🆕 Дата создания */}
-      {place.createdAt && (
-        <p className="text-xs text-gray-500 mt-2">
-          🕒 Добавлено: {new Date(place.createdAt).toLocaleDateString("ru-RU")}
+        <p className="text-sm mt-2 text-gray-700 line-clamp-3">
+          {place.description}
         </p>
       )}
 
-      {/* 🆕 Координаты */}
+      {/* 🆕 Информация о владельце */}
+      {place.ownerUsername && (
+        <p className="text-xs text-gray-500 mt-2">
+          👤 {place.ownerUsername}
+          {isOwner && <span className="text-green-600 font-medium"> (вы)</span>}
+        </p>
+      )}
+
+      {place.createdAt && (
+        <p className="text-xs text-gray-500 mt-1">
+          🕒 {new Date(place.createdAt).toLocaleDateString("ru-RU")}
+        </p>
+      )}
+
+      {/* Координаты и статистика */}
       <div className="mt-3 pt-2 border-t border-gray-200">
         <p className="text-xs text-gray-500">
-          📍 Координаты: {place.latitude.toFixed(6)},{" "}
-          {place.longitude.toFixed(6)}
+          📍 {place.latitude.toFixed(6)}, {place.longitude.toFixed(6)}
         </p>
         {place.images && place.images.length > 0 && (
           <p className="text-xs text-gray-500 mt-1">
@@ -196,7 +240,8 @@ const PlacePopup = memo(function PlacePopup({
         )}
       </div>
 
-      {token && place.id && (
+      {/* 🆕 ЗАГРУЗКА ФОТО: только для владельца */}
+      {token && place.id && isOwner && (
         <ImageUpload
           placeId={place.id}
           token={token}
@@ -207,16 +252,21 @@ const PlacePopup = memo(function PlacePopup({
   );
 });
 
+// ============================================
+// КОМПОНЕНТ: Кластеризация
+// ============================================
+
 interface MapClusterProps {
   places: Place[];
   token: string | null;
+  currentUserId?: number | null; // 🆕
   onImageAdded: (placeId: number, image: PlaceImage) => void;
 }
 
-// Компонент кластеризации
 export const MapCluster = memo(function MapCluster({
   places,
   token,
+  currentUserId,
   onImageAdded,
 }: MapClusterProps) {
   return (
@@ -239,6 +289,7 @@ export const MapCluster = memo(function MapCluster({
             <PlacePopup
               place={place}
               token={token}
+              currentUserId={currentUserId}
               onImageAdded={onImageAdded}
             />
           </Popup>

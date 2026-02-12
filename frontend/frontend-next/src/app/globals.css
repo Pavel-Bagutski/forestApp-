@@ -31,3 +31,11 @@
 .leaflet-popup-content-wrapper {
   pointer-events: auto !important;
 }
+
+/* Добавить к существующим стилям */
+.leaflet-popup-content button,
+.leaflet-popup-content a {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 1000;
+}
