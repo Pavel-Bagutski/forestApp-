@@ -4,7 +4,8 @@ import { memo, useState } from "react";
 import { Marker, Popup } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import { DivIcon } from "leaflet";
-import { ImageUpload } from "./Map"; // 🆕 Импорт из Map.tsx
+import { ImageUpload } from "./Map";
+import { useAuthStore } from "@/store/authStore"; // 🆕 Импорт стора
 
 export interface PlaceImage {
   id: number;
@@ -22,6 +23,7 @@ export interface Place {
   mushroomType?: string;
   images?: PlaceImage[];
   createdAt?: string;
+  userId?: number; // 🆕 ID владельца маркера (с бэкенда)
 }
 
 // Иконка для отдельного маркера
@@ -109,6 +111,7 @@ interface PlacePopupProps {
   place: Place;
   token: string | null;
   onImageAdded: (placeId: number, image: PlaceImage) => void;
+  currentUserId?: number | null; // 🆕 ID текущего пользователя
 }
 
 // Компонент попапа для места
@@ -116,14 +119,30 @@ const PlacePopup = memo(function PlacePopup({
   place,
   token,
   onImageAdded,
+  currentUserId,
 }: PlacePopupProps) {
-  const [showAllPhotos, setShowAllPhotos] = useState(false); // 🆕 Добавлено состояние
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
+
+  // 🆕 Проверяем, является ли текущий пользователь владельцем
+  const isOwner =
+    currentUserId && place.userId && currentUserId === place.userId;
+
   const mushroomLabel = place.mushroomType
     ? MUSHROOM_LABELS[place.mushroomType] || place.mushroomType
     : null;
 
+  const handlePopupClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleShowMoreClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowAllPhotos(true);
+  };
+
   return (
-    <div className="min-w-[250px] max-w-[300px]">
+    <div className="min-w-[250px] max-w-[300px]" onClick={handlePopupClick}>
       {place.images && place.images[0]?.url ? (
         <div className="mb-3">
           <img
@@ -133,14 +152,14 @@ const PlacePopup = memo(function PlacePopup({
           />
           {place.images.length > 1 && !showAllPhotos && (
             <button
-              onClick={() => setShowAllPhotos(true)}
-              className="text-xs text-blue-600 mt-1 hover:underline"
+              type="button"
+              onClick={handleShowMoreClick}
+              className="text-xs text-blue-600 mt-1 hover:underline cursor-pointer"
             >
               +{place.images.length - 1} фото ещё
             </button>
           )}
 
-          {/* 🆕 Показ всех фото */}
           {showAllPhotos && place.images.length > 1 && (
             <div className="grid grid-cols-2 gap-1 mt-2">
               {place.images.slice(1).map((img) => (
@@ -176,14 +195,12 @@ const PlacePopup = memo(function PlacePopup({
         <p className="text-sm mt-2 text-gray-700">{place.description}</p>
       )}
 
-      {/* 🆕 Дата создания */}
       {place.createdAt && (
         <p className="text-xs text-gray-500 mt-2">
           🕒 Добавлено: {new Date(place.createdAt).toLocaleDateString("ru-RU")}
         </p>
       )}
 
-      {/* 🆕 Координаты */}
       <div className="mt-3 pt-2 border-t border-gray-200">
         <p className="text-xs text-gray-500">
           📍 Координаты: {place.latitude.toFixed(6)},{" "}
@@ -196,7 +213,8 @@ const PlacePopup = memo(function PlacePopup({
         )}
       </div>
 
-      {token && place.id && (
+      {/* 🆕 Показываем загрузку фото ТОЛЬКО владельцу */}
+      {token && place.id && isOwner && (
         <ImageUpload
           placeId={place.id}
           token={token}
@@ -219,6 +237,10 @@ export const MapCluster = memo(function MapCluster({
   token,
   onImageAdded,
 }: MapClusterProps) {
+  // 🆕 Получаем user из стора и извлекаем id
+  const { user } = useAuthStore();
+  const currentUserId = user?.id;
+
   return (
     <MarkerClusterGroup
       chunkedLoading
@@ -240,6 +262,7 @@ export const MapCluster = memo(function MapCluster({
               place={place}
               token={token}
               onImageAdded={onImageAdded}
+              currentUserId={currentUserId} // 🆕 Передаём ID текущего пользователя
             />
           </Popup>
         </Marker>
