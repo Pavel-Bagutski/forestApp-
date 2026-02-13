@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { Place, MushroomType } from "@/components/map/Map";
+import { useAuthStore } from "@/store/authStore";
 
 // Типизируем динамический импорт
 const Map = dynamic(
@@ -23,12 +24,9 @@ export default function MapPage() {
   const [mushroomTypes, setMushroomTypes] = useState<MushroomType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const { token } = useAuthStore();
 
   useEffect(() => {
-    // Получаем токен
-    const storedToken = localStorage.getItem("token");
-    setToken(storedToken);
 
     // Загружаем данные
     const fetchData = async () => {
@@ -60,26 +58,83 @@ export default function MapPage() {
     fetchData();
   }, []);
 
-  const handleAddPlace = async (placeData: Omit<Place, "id" | "createdAt">) => {
+  const handleAddPlace = async (placeData: Omit<Place, "id" | "createdAt" | "images" | "mushroomTypes"> & { 
+    images?: File[];
+    mushroomTypeIds: number[];
+    newMushroomTypes: { name: string; category?: string }[];
+  }) => {
     console.log("Add place:", placeData);
-    // TODO: отправить запрос на создание места
-    // Пример:
-    // const res = await fetch("http://localhost:8080/api/places", {
-    //   method: "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     Authorization: `Bearer ${token}`,
-    //   },
-    //   body: JSON.stringify(placeData),
-    // });
-    // return res.json();
+    
+    // Проверяем наличие токена
+    if (!token) {
+      setError("Требуется авторизация");
+      throw new Error("No token available");
+    }
+    
+    const { images, mushroomTypeIds, newMushroomTypes, ...placeInfo } = placeData;
+    
+    // Создаем FormData для отправки multipart/form-data
+    const formData = new FormData();
+    formData.append("title", placeInfo.title);
+    formData.append("description", placeInfo.description || "");
+    formData.append("latitude", String(placeInfo.latitude));
+    formData.append("longitude", String(placeInfo.longitude));
+    
+    // Добавляем фотографии
+    if (images && images.length > 0) {
+      images.forEach((image) => {
+        formData.append("images", image);
+      });
+    }
+    
+    // Добавляем ID существующих грибов
+    if (mushroomTypeIds && mushroomTypeIds.length > 0) {
+      mushroomTypeIds.forEach((id) => {
+        formData.append("mushroomTypeIds", String(id));
+      });
+    }
+    
+    // Добавляем новые грибы (как JSON строку)
+    if (newMushroomTypes && newMushroomTypes.length > 0) {
+      formData.append("newMushroomTypes", JSON.stringify(newMushroomTypes));
+    }
 
-    // Временно возвращаем моковый Place
-    return {
-      id: Date.now(),
-      ...placeData,
-      createdAt: new Date().toISOString(),
-    } as Place;
+    try {
+      const res = await fetch("http://localhost:8080/api/places", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Server error:", res.status, errorText);
+        throw new Error(`Failed to create place: ${res.status} ${errorText}`);
+      }
+
+      const newPlace = await res.json();
+      
+      // Обновляем список мест
+      setPlaces((prev) => [...prev, newPlace]);
+      
+      // Обновляем список типов грибов, если были добавлены новые
+      if (newPlace.mushroomTypes) {
+        const newTypes = newPlace.mushroomTypes.filter(
+          (newType: MushroomType) => !mushroomTypes.some((existing) => existing.id === newType.id)
+        );
+        if (newTypes.length > 0) {
+          setMushroomTypes((prev) => [...prev, ...newTypes]);
+        }
+      }
+      
+      return newPlace;
+    } catch (err) {
+      console.error("Failed to add place:", err);
+      setError("Ошибка при создании места");
+      throw err;
+    }
   };
 
   const handleImageAdded = (
