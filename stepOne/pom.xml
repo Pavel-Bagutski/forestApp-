@@ -146,6 +146,7 @@
 			<version>11.3.0</version> <!-- 🆕 Новая версия -->
 		</dependency>
 
+
 	</dependencies>
 
 	<build>

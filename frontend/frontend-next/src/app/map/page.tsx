@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { Place, MushroomType } from "@/components/map/Map";
+import { useAuthStore } from "@/store/authStore";
 
 // Типизируем динамический импорт
 const Map = dynamic(
@@ -23,12 +24,9 @@ export default function MapPage() {
   const [mushroomTypes, setMushroomTypes] = useState<MushroomType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const { token } = useAuthStore();
 
   useEffect(() => {
-    // Получаем токен
-    const storedToken = localStorage.getItem("token");
-    setToken(storedToken);
 
     // Загружаем данные
     const fetchData = async () => {
@@ -41,8 +39,16 @@ export default function MapPage() {
           fetch("http://localhost:8080/api/mushroom-types"),
         ]);
 
-        if (!placesRes.ok) throw new Error("Failed to fetch places");
-        if (!typesRes.ok) throw new Error("Failed to fetch mushroom types");
+        if (!placesRes.ok) {
+          const errorText = await placesRes.text();
+          console.error("Places fetch error:", placesRes.status, errorText);
+          throw new Error(`Failed to fetch places: ${placesRes.status} ${errorText}`);
+        }
+        if (!typesRes.ok) {
+          const errorText = await typesRes.text();
+          console.error("Types fetch error:", typesRes.status, errorText);
+          throw new Error("Failed to fetch mushroom types");
+        }
 
         const placesData = await placesRes.json();
         const typesData = await typesRes.json();
@@ -60,26 +66,122 @@ export default function MapPage() {
     fetchData();
   }, []);
 
-  const handleAddPlace = async (placeData: Omit<Place, "id" | "createdAt">) => {
-    console.log("Add place:", placeData);
-    // TODO: отправить запрос на создание места
-    // Пример:
-    // const res = await fetch("http://localhost:8080/api/places", {
-    //   method: "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     Authorization: `Bearer ${token}`,
-    //   },
-    //   body: JSON.stringify(placeData),
-    // });
-    // return res.json();
+  // Функция для декодирования JWT (для отладки)
+  const decodeJWT = (token: string) => {
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      return null;
+    }
+  };
 
-    // Временно возвращаем моковый Place
-    return {
-      id: Date.now(),
-      ...placeData,
-      createdAt: new Date().toISOString(),
-    } as Place;
+  const handleAddPlace = async (placeData: Omit<Place, "id" | "createdAt" | "images" | "mushroomTypes"> & { 
+    images?: File[];
+    mushroomTypeIds: number[];
+    newMushroomTypes: { name: string; category?: string }[];
+  }) => {
+    console.log("Add place:", placeData);
+    
+    // Проверяем наличие токена
+    if (!token) {
+      setError("Требуется авторизация");
+      throw new Error("No token available");
+    }
+    
+    // Отладка: декодируем и показываем содержимое токена
+    const decodedToken = decodeJWT(token);
+    console.log("Decoded JWT:", decodedToken);
+    console.log("Roles in token:", decodedToken?.roles || decodedToken?.authorities || decodedToken?.role || "No roles found");
+    
+    const { images, mushroomTypeIds, newMushroomTypes, ...placeInfo } = placeData;
+    
+    // Бэкенд ожидает JSON с одним mushroomTypeId
+    // Берём первый выбранный гриб или null
+    const mushroomTypeId = mushroomTypeIds.length > 0 ? mushroomTypeIds[0] : null;
+    
+    const requestBody = {
+      title: placeInfo.title,
+      description: placeInfo.description || "",
+      latitude: placeInfo.latitude,
+      longitude: placeInfo.longitude,
+      address: null,
+      imageUrl: null,
+      mushroomTypeId: mushroomTypeId,
+    };
+
+    try {
+      const res = await fetch("http://localhost:8080/api/places", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Server error:", res.status, errorText);
+        throw new Error(`Failed to create place: ${res.status} ${errorText}`);
+      }
+
+      const newPlace = await res.json();
+      
+      // Загружаем фотографии по одной (множественная загрузка)
+      if (images && images.length > 0 && newPlace.id) {
+        const uploadResults = [];
+        for (const image of images) {
+          const imageFormData = new FormData();
+          imageFormData.append("file", image);
+          
+          try {
+            const imgRes = await fetch(`http://localhost:8080/api/places/${newPlace.id}/images`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              body: imageFormData,
+            });
+            
+            if (imgRes.ok) {
+              const imgData = await imgRes.json();
+              uploadResults.push({ success: true, data: imgData });
+              console.log("✅ Фото загружено:", imgData.url);
+            } else {
+              const errorText = await imgRes.text();
+              uploadResults.push({ success: false, error: errorText });
+              console.error("❌ Ошибка загрузки фото:", imgRes.status, errorText);
+            }
+          } catch (imgErr: any) {
+            uploadResults.push({ success: false, error: imgErr.message });
+            console.error("❌ Ошибка сети при загрузке фото:", imgErr);
+          }
+        }
+        
+        // Показываем результат загрузки
+        const successCount = uploadResults.filter(r => r.success).length;
+        if (successCount > 0) {
+          console.log(`✅ Загружено ${successCount} из ${images.length} фото`);
+        }
+      }
+      
+      // Обновляем список мест
+      setPlaces((prev) => [...prev, newPlace]);
+      
+      return newPlace;
+    } catch (err) {
+      console.error("Failed to add place:", err);
+      setError("Ошибка при создании места");
+      throw err;
+    }
   };
 
   const handleImageAdded = (

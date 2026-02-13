@@ -16,12 +16,18 @@ public interface MushroomPlaceRepository extends JpaRepository<MushroomPlace, Lo
 
     List<MushroomPlace> findByOwnerId(Long ownerId);
 
-    // ✅ Исправлено: mushroomTypes -> mushroomType
-    @Query("SELECT DISTINCT p FROM MushroomPlace p LEFT JOIN FETCH p.images WHERE p.mushroomType.category = :category")
+    // ✅ ИСПРАВЛЕНО: mushroomType -> mushroomTypes + добавлен JOIN
+    @Query("SELECT DISTINCT p FROM MushroomPlace p " +
+            "LEFT JOIN FETCH p.images " +
+            "JOIN p.mushroomTypes mt " +
+            "WHERE mt.category = :category")
     List<MushroomPlace> findByMushroomTypeCategory(@Param("category") EdibilityCategory category);
 
-    // ✅ Исправлено: mushroomTypes -> mushroomType
-    @Query("SELECT DISTINCT p FROM MushroomPlace p LEFT JOIN FETCH p.images WHERE p.mushroomType.id = :typeId")
+    // ✅ ИСПРАВЛЕНО: mushroomType -> mushroomTypes + добавлен JOIN
+    @Query("SELECT DISTINCT p FROM MushroomPlace p " +
+            "LEFT JOIN FETCH p.images " +
+            "JOIN p.mushroomTypes mt " +
+            "WHERE mt.id = :typeId")
     List<MushroomPlace> findByMushroomTypeId(@Param("typeId") Long typeId);
 
     @Query("SELECT DISTINCT p FROM MushroomPlace p LEFT JOIN FETCH p.images WHERE p.owner.id = :ownerId")

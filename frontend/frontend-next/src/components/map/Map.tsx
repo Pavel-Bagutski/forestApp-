@@ -15,6 +15,7 @@ import "leaflet/dist/leaflet.css";
 import "./MapMarkers.css";
 import { useAuthStore } from "@/store/authStore";
 import { PlacePopup } from "./PlacePopup";
+import { NewPlacePopup } from "./PlacePopupCreating";
 import { MapCluster } from "./MapCluster";
 
 // ============================================
@@ -112,110 +113,17 @@ const MapClickHandler = memo(function MapClickHandler({
 
 // PlacePopup импортируется из ./PlacePopup
 
-interface NewPlaceMarkerProps {
-  position: { lat: number; lng: number };
-  onAdd: (placeData: Omit<Place, "id" | "createdAt">) => void;
-  token: string | null;
-}
-
-const NewPlaceMarker = memo(function NewPlaceMarker({
-  position,
-  onAdd,
-  token,
-}: NewPlaceMarkerProps) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-
-  const handleSubmit = () => {
-    if (!title.trim()) return;
-
-    onAdd({
-      title: title.trim(),
-      description: description.trim(),
-      latitude: position.lat,
-      longitude: position.lng,
-    });
-  };
-
-  if (!token) {
-    return (
-      <Marker position={[position.lat, position.lng]} icon={newPlaceIcon}>
-        <Popup minWidth={300} maxWidth={350}>
-          <div className="p-4 w-full max-h-[400px] overflow-y-auto text-center">
-            <div className="text-3xl mb-2">🔒</div>
-            <h4 className="font-bold text-lg mb-2">Требуется вход</h4>
-            <p className="text-sm text-gray-600 mb-4">
-              Войдите в систему, чтобы добавлять новые места на карту
-            </p>
-            <a
-              href="/login"
-              className="inline-block w-full bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors"
-            >
-              Войти
-            </a>
-          </div>
-        </Popup>
-      </Marker>
-    );
-  }
-
-  return (
-    <Marker position={[position.lat, position.lng]} icon={newPlaceIcon}>
-      <Popup minWidth={300} maxWidth={350}>
-        <div className="p-4 w-full max-h-[400px] overflow-y-auto">
-          <h4 className="font-bold text-lg mb-4">🍄 Новое место</h4>
-
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-500 uppercase font-semibold">
-                Название *
-              </label>
-              <input
-                type="text"
-                placeholder="Например: Боровиковая поляна"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full mt-1 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs text-gray-500 uppercase font-semibold">
-                Описание
-              </label>
-              <textarea
-                placeholder="Опишите место, как добраться..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full mt-1 p-2 border rounded-lg text-sm h-20 resize-none focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
-              />
-            </div>
-
-            <div className="text-xs text-gray-400">
-              Координаты: {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
-            </div>
-          </div>
-
-          <button
-            onClick={handleSubmit}
-            disabled={!title.trim()}
-            className="w-full mt-4 bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            Добавить место
-          </button>
-        </div>
-      </Popup>
-    </Marker>
-  );
-});
-
 // ============================================
 // ГЛАВНЫЙ КОМПОНЕНТ
 // ============================================
 
 interface MapProps {
   places?: Place[];
-  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt">) => Promise<Place>;
+  onAddPlace?: (placeData: Omit<Place, "id" | "createdAt" | "images" | "mushroomTypes"> & { 
+    images?: File[];
+    mushroomTypeIds: number[];
+    newMushroomTypes: { name: string; category?: string }[];
+  }) => Promise<Place>;
   onImageAdded?: (placeId: number, image: PlaceImage) => void;
   isLoading?: boolean;
   mushroomTypes?: MushroomType[]; // Опционально, для совместимости
@@ -226,6 +134,7 @@ export default function Map({
   onAddPlace,
   onImageAdded,
   isLoading = false,
+  mushroomTypes = [],
 }: MapProps) {
   const [newPosition, setNewPosition] = useState<{
     lat: number;
@@ -246,8 +155,12 @@ export default function Map({
     const handleOpenPopup = (e: CustomEvent<Place>) => {
       setSelectedPlace(e.detail);
     };
-    window.addEventListener('openPlacePopup', handleOpenPopup as EventListener);
-    return () => window.removeEventListener('openPlacePopup', handleOpenPopup as EventListener);
+    window.addEventListener("openPlacePopup", handleOpenPopup as EventListener);
+    return () =>
+      window.removeEventListener(
+        "openPlacePopup",
+        handleOpenPopup as EventListener,
+      );
   }, []);
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -255,17 +168,62 @@ export default function Map({
   }, []);
 
   const handlePlaceAdd = useCallback(
-    async (placeData: Omit<Place, "id" | "createdAt">) => {
+    async (placeData: {
+      title: string;
+      description: string;
+      latitude: number;
+      longitude: number;
+      images: File[];
+      mushroomTypeIds: number[];
+      newMushroomTypes: { name: string; category?: string }[];
+    }): Promise<void> => {
       if (!onAddPlace) return;
 
       try {
-        await onAddPlace(placeData);
-        setNewPosition(null); // Закрываем маркер после успешного добавления
+        // 1. Создаём место (без фото)
+        const createdPlace = await onAddPlace({
+          title: placeData.title,
+          description: placeData.description,
+          latitude: placeData.latitude,
+          longitude: placeData.longitude,
+          mushroomTypeIds: placeData.mushroomTypeIds,
+          newMushroomTypes: placeData.newMushroomTypes,
+        });
+
+        // 2. Загружаем фото по одному (если есть)
+        if (placeData.images.length > 0 && createdPlace?.id && token) {
+          for (const imageFile of placeData.images) {
+            const formData = new FormData();
+            formData.append("file", imageFile);
+            
+            try {
+              const res = await fetch(
+                `http://localhost:8080/api/places/${createdPlace.id}/images`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: formData,
+                }
+              );
+              
+              if (!res.ok) {
+                console.error("Failed to upload image:", res.status);
+              }
+            } catch (imgErr) {
+              console.error("Image upload error:", imgErr);
+            }
+          }
+        }
+
+        setNewPosition(null); // Закрываем
       } catch (err) {
         console.error("Failed to add place:", err);
+        throw err;
       }
     },
-    [onAddPlace],
+    [onAddPlace, token],
   );
 
   if (!isMounted || isLoading) {
@@ -326,9 +284,21 @@ export default function Map({
 
       {/* Кастомный attribution снизу справа */}
       <div className="custom-attribution">
-        <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">Leaflet</a>
-        {" | "}
-        © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>
+        <a
+          href="https://leafletjs.com"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Leaflet
+        </a>
+        {" | "}©{" "}
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          OpenStreetMap
+        </a>
       </div>
 
       <MapContainer
@@ -376,33 +346,54 @@ export default function Map({
         <MapClickHandler onClick={handleMapClick} />
 
         {/* Кластеризованные маркеры */}
-        <MapCluster 
-          places={places} 
+        <MapCluster
+          places={places}
           onImageAdded={onImageAdded}
           onPlaceClick={setSelectedPlace}
         />
 
+        {/* Маркер нового места (только иконка, без popup) */}
         {newPosition && (
-          <NewPlaceMarker
-            position={newPosition}
-            onAdd={handlePlaceAdd}
-            token={token}
+          <Marker
+            position={[newPosition.lat, newPosition.lng]}
+            icon={newPlaceIcon}
           />
         )}
       </MapContainer>
 
-      {/* Кастомный попап через портал */}
-      {selectedPlace && typeof window !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <PlacePopup
-            place={selectedPlace}
-            onImageAdded={onImageAdded}
-            onClose={() => setSelectedPlace(null)}
-            isOpen={true}
-          />
-        </div>,
-        document.body
-      )}
+      {/* Кастомный попап существующего места */}
+      {selectedPlace &&
+        typeof window !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-9999 flex items-center justify-center p-4">
+            <PlacePopup
+              place={selectedPlace}
+              onImageAdded={onImageAdded}
+              onClose={() => setSelectedPlace(null)}
+              isOpen={true}
+            />
+          </div>,
+          document.body,
+        )}
+
+      {/* Кастомный попап добавления нового места */}
+      {newPosition &&
+        typeof window !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-9999 flex items-center justify-center p-4">
+            <NewPlacePopup
+              lat={newPosition.lat}
+              lng={newPosition.lng}
+              isOpen={true}
+              onClose={() => setNewPosition(null)}
+              mushroomTypes={mushroomTypes}
+              onSubmit={async (data) => {
+                await handlePlaceAdd(data);
+              }}
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
