@@ -2,8 +2,10 @@ package by.forestapp.stepOne.controller;
 
 import by.forestapp.stepOne.model.MushroomPlace;
 import by.forestapp.stepOne.model.PlaceImage;
+import by.forestapp.stepOne.model.User;
 import by.forestapp.stepOne.repository.MushroomPlaceRepository;
 import by.forestapp.stepOne.repository.PlaceImageRepository;
+import by.forestapp.stepOne.repository.UserRepository;
 import by.forestapp.stepOne.service.StorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,22 +24,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * ============================================================================
- * КОНТРОЛЛЕР МЕСТ С ГРИБАМИ
- * ============================================================================
- *
- * "ЧТО ЭТО": REST API для управления местами и их фотографиями
- * "С ЧЕМ ВЗАИМОДЕЙСТВУЕТ":
- *   - С базой данных (MushroomPlaceRepository, PlaceImageRepository)
- *   - С хранилищем файлов (StorageService - Supabase S3)
- *   - С Spring Security (Authentication)
- *
- * "НА ЧТО ВЛИЯЕТ":
- *   - Создание, чтение, обновление, удаление мест
- *   - Загрузка фотографий (одиночная и пакетная)
- *   - Проверка прав доступа (владелец места)
- */
 @RestController
 @RequestMapping("/api/places")
 @RequiredArgsConstructor
@@ -46,17 +32,189 @@ public class PlacesController {
     private final MushroomPlaceRepository placeRepository;
     private final PlaceImageRepository placeImageRepository;
     private final StorageService storageService;
+    private final UserRepository userRepository; // 🆕 Добавить
 
     // ==========================================
-    // МЕТОД 1: Загрузка одного изображения (существующий)
+    // 🆕 CRUD МЕТОДЫ ДЛЯ МЕСТ (БЫЛИ ПРОПУЩЕНЫ!)
     // ==========================================
 
     /**
-     * "ЧТО ДЕЛАЕТ": Загружает одно фото к существующему месту
-     * "КУДА ОТПРАВЛЯЕТСЯ": В Supabase Storage, затем URL в БД
-     * "НА ЧТО ВЛИЯЕТ": Добавляет запись в таблицу place_images
-     *
-     * Аналогия: как прикрепить один файл к письму
+     * Получить все места (ПУБЛИЧНЫЙ)
+     */
+    @GetMapping
+    public ResponseEntity<List<Map<String, Object>>> getAllPlaces() {
+        List<MushroomPlace> places = placeRepository.findAllWithImages();
+
+        List<Map<String, Object>> result = places.stream()
+                .map(this::convertToMap)
+                .toList();
+
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Получить место по ID (ПУБЛИЧНЫЙ)
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> getPlaceById(@PathVariable Long id) {
+        MushroomPlace place = placeRepository.findByIdWithImages(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
+
+        return ResponseEntity.ok(convertToMap(place));
+    }
+
+    /**
+     * Создать место (ТРЕБУЕТ АВТОРИЗАЦИИ)
+     */
+    @PostMapping
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    @Transactional
+    public ResponseEntity<?> createPlace(
+            @RequestBody Map<String, Object> placeData,
+            Authentication authentication) {
+
+        // Находим пользователя
+        User owner = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Пользователь не найден"));
+
+        // Создаем место
+        MushroomPlace place = MushroomPlace.builder()
+                .title((String) placeData.get("title"))
+                .description((String) placeData.get("description"))
+                .latitude(((Number) placeData.get("latitude")).doubleValue())
+                .longitude(((Number) placeData.get("longitude")).doubleValue())
+                .address((String) placeData.get("address"))
+                .owner(owner)
+                .build();
+
+        MushroomPlace saved = placeRepository.save(place);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(convertToMap(saved));
+    }
+
+    /**
+     * Обновить место (ТРЕБУЕТ АВТОРИЗАЦИИ + ВЛАДЕЛЬЦА)
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    @Transactional
+    public ResponseEntity<?> updatePlace(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> placeData,
+            Authentication authentication) {
+
+        MushroomPlace place = placeRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
+
+        // Проверка владельца
+        if (!place.getOwner().getEmail().equals(authentication.getName())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Вы не владелец этого места"));
+        }
+
+        // Обновляем поля
+        if (placeData.containsKey("title")) {
+            place.setTitle((String) placeData.get("title"));
+        }
+        if (placeData.containsKey("description")) {
+            place.setDescription((String) placeData.get("description"));
+        }
+        if (placeData.containsKey("latitude")) {
+            place.setLatitude(((Number) placeData.get("latitude")).doubleValue());
+        }
+        if (placeData.containsKey("longitude")) {
+            place.setLongitude(((Number) placeData.get("longitude")).doubleValue());
+        }
+        if (placeData.containsKey("address")) {
+            place.setAddress((String) placeData.get("address"));
+        }
+
+        MushroomPlace updated = placeRepository.save(place);
+
+        return ResponseEntity.ok(convertToMap(updated));
+    }
+
+    /**
+     * Удалить место (ТРЕБУЕТ АВТОРИЗАЦИИ + ВЛАДЕЛЬЦА)
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    @Transactional
+    public ResponseEntity<?> deletePlace(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        MushroomPlace place = placeRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
+
+        // Проверка владельца
+        if (!place.getOwner().getEmail().equals(authentication.getName())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Вы не владелец этого места"));
+        }
+
+        placeRepository.delete(place);
+
+        return ResponseEntity.ok(Map.of("message", "Место удалено"));
+    }
+
+    // ==========================================
+    // ВСПОМОГАТЕЛЬНЫЙ МЕТОД КОНВЕРТАЦИИ
+    // ==========================================
+
+    private Map<String, Object> convertToMap(MushroomPlace place) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", place.getId());
+        map.put("title", place.getTitle());
+        map.put("description", place.getDescription());
+        map.put("latitude", place.getLatitude());
+        map.put("longitude", place.getLongitude());
+        map.put("address", place.getAddress());
+        map.put("createdAt", place.getCreatedAt());
+        map.put("updatedAt", place.getUpdatedAt());
+
+        // Владелец
+        Map<String, Object> ownerMap = new HashMap<>();
+        ownerMap.put("id", place.getOwner().getId());
+        ownerMap.put("email", place.getOwner().getEmail());
+        ownerMap.put("username", place.getOwner().getUsername());
+        map.put("owner", ownerMap);
+
+        // Изображения
+        List<Map<String, Object>> images = place.getImages().stream()
+                .map(img -> {
+                    Map<String, Object> imgMap = new HashMap<>();
+                    imgMap.put("id", img.getId());
+                    imgMap.put("url", img.getUrl());
+                    imgMap.put("uploadedAt", img.getUploadedAt());
+                    return imgMap;
+                })
+                .toList();
+        map.put("images", images);
+        map.put("imageCount", images.size());
+
+        // Типы грибов
+        List<Map<String, Object>> mushroomTypes = place.getMushroomTypes().stream()
+                .map(mt -> {
+                    Map<String, Object> mtMap = new HashMap<>();
+                    mtMap.put("id", mt.getId());
+                    mtMap.put("name", mt.getName());
+                    mtMap.put("category", mt.getCategory());
+                    return mtMap;
+                })
+                .toList();
+        map.put("mushroomTypes", mushroomTypes);
+
+        return map;
+    }
+
+    // ==========================================
+    // ЗАГРУЗКА ФОТОГРАФИЙ
+    // ==========================================
+
+    /**
+     * Загрузить одно фото к месту
      */
     @PostMapping(value = "/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
@@ -70,7 +228,7 @@ public class PlacesController {
         MushroomPlace place = placeRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
 
-        // 2. Проверяем владельца (ИСПРАВЛЕНО: getOwner() вместо getUser())
+        // 2. Проверяем владельца
         if (!place.getOwner().getEmail().equals(authentication.getName())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Вы не владелец этого места"));
@@ -103,213 +261,5 @@ public class PlacesController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Ошибка загрузки: " + e.getMessage()));
         }
-    }
-
-    // ==========================================
-    // МЕТОД 2: Пакетная загрузка (НОВЫЙ)
-    // ==========================================
-
-    /**
-     * "ЧТО ДЕЛАЕТ": Загружает несколько фото одним запросом
-     * "ЗАЧЕМ": Оптимизация - меньше HTTP-запросов от фронтенда
-     * "ОГРАНИЧЕНИЯ": Максимум 10 файлов, каждый до 5MB
-     *
-     * Аналогия: как прикрепить несколько файлов к письму сразу
-     */
-    @PostMapping(value = "/{id}/images/batch", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    @Transactional
-    public ResponseEntity<?> uploadImagesBatch(
-            @PathVariable Long id,
-            @RequestParam("files") List<MultipartFile> files,
-            Authentication authentication) {
-
-        // 1. Валидация входных данных
-        if (files == null || files.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Не выбраны файлы"));
-        }
-
-        if (files.size() > 10) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Максимум 10 файлов за раз"));
-        }
-
-        // 2. Находим место и проверяем права
-        MushroomPlace place = placeRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        if (!place.getOwner().getEmail().equals(authentication.getName())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Вы не владелец этого места"));
-        }
-
-        // 3. Проверяем лимит фото (ИСПРАВЛЕНО: countByPlaceId)
-        long existingCount = placeImageRepository.countByPlaceId(id);
-        if (existingCount + files.size() > 10) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error",
-                            String.format("Превышен лимит фото. Уже есть: %d, пытаетесь добавить: %d (макс. 10)",
-                                    existingCount, files.size())));
-        }
-
-        // 4. Обработка каждого файла
-        List<Map<String, Object>> results = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-
-        for (int i = 0; i < files.size(); i++) {
-            MultipartFile file = files.get(i);
-
-            try {
-                // Валидация файла
-                if (file.isEmpty()) {
-                    errors.add(String.format("Файл %d: пустой", i + 1));
-                    continue;
-                }
-
-                if (file.getSize() > 5 * 1024 * 1024) {
-                    errors.add(String.format("Файл '%s': превышает 5MB",
-                            file.getOriginalFilename()));
-                    continue;
-                }
-
-                // Загрузка в хранилище
-                String imageUrl = storageService.uploadImage(file, id);
-
-                // Сохранение в БД
-                PlaceImage placeImage = PlaceImage.builder()
-                        .url(imageUrl)
-                        .place(place)
-                        .uploadedAt(LocalDateTime.now())
-                        .build();
-
-                placeImageRepository.save(placeImage);
-
-                // Успешный результат
-                Map<String, Object> result = new HashMap<>();
-                result.put("id", placeImage.getId());
-                result.put("url", imageUrl);
-                result.put("filename", file.getOriginalFilename());
-                result.put("index", i);
-                results.add(result);
-
-            } catch (Exception e) {
-                errors.add(String.format("'%s': %s",
-                        file.getOriginalFilename(), e.getMessage()));
-            }
-        }
-
-        // 5. Формирование ответа
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", results.size());
-        response.put("failed", errors.size());
-        response.put("total", files.size());
-        response.put("images", results);
-        response.put("errors", errors);
-
-        // Если ничего не загрузилось - ошибка
-        if (results.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(response);
-        }
-
-        // Частичный успех или полный успех
-        return ResponseEntity.ok(response);
-    }
-
-    // ==========================================
-    // МЕТОД 3: Временная загрузка (НОВЫЙ, опционально)
-    // ==========================================
-
-    /**
-     * "ЧТО ДЕЛАЕТ": Загружает фото без привязки к месту (во временную папку)
-     * "ЗАЧЕМ": Для сценария "сначала загрузим фото, потом создадим место"
-     * "ВАЖНО": Требует доработки (периодическая очистка temp)
-     *
-     * Аналогия: как оставить вещи в камере хранения на вокзале
-     */
-    @PostMapping(value = "/images/temp", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<?> uploadTempImage(
-            @RequestParam("file") MultipartFile file,
-            Authentication authentication) {
-
-        try {
-            // ИСПРАВЛЕНО: используем uploadTempImage из StorageService
-            String imageUrl = storageService.uploadTempImage(file);
-
-            return ResponseEntity.ok(Map.of(
-                    "url", imageUrl,
-                    "tempId", System.currentTimeMillis(),
-                    "message", "Временное фото загружено"
-            ));
-
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Ошибка загрузки: " + e.getMessage()));
-        }
-    }
-
-    // ==========================================
-    // ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ (при необходимости)
-    // ==========================================
-
-    /**
-     * Получение всех фото места
-     */
-    @GetMapping("/{id}/images")
-    public ResponseEntity<?> getPlaceImages(@PathVariable Long id) {
-        MushroomPlace place = placeRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        List<PlaceImage> images = placeImageRepository.findByPlaceId(id);
-
-        List<Map<String, Object>> result = images.stream()
-                .map(img -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", img.getId());
-                    map.put("url", img.getUrl());
-                    map.put("uploadedAt", img.getUploadedAt());
-                    return map;
-                })
-                .toList();
-
-        return ResponseEntity.ok(Map.of(
-                "placeId", id,
-                "count", result.size(),
-                "images", result
-        ));
-    }
-
-    /**
-     * Удаление фото
-     */
-    @DeleteMapping("/{placeId}/images/{imageId}")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    @Transactional
-    public ResponseEntity<?> deleteImage(
-            @PathVariable Long placeId,
-            @PathVariable Long imageId,
-            Authentication authentication) {
-
-        MushroomPlace place = placeRepository.findById(placeId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Место не найдено"));
-
-        if (!place.getOwner().getEmail().equals(authentication.getName())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Вы не владелец этого места"));
-        }
-
-        PlaceImage image = placeImageRepository.findById(imageId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Фото не найдено"));
-
-        // TODO: удалить из хранилища (StorageService.deleteImage)
-
-        placeImageRepository.delete(image);
-
-        return ResponseEntity.ok(Map.of("message", "Фото удалено"));
     }
 }

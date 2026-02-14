@@ -178,6 +178,12 @@ export default function Map({
       newMushroomTypes: { name: string; category?: string }[];
     }): Promise<void> => {
       if (!onAddPlace) return;
+      
+      // Проверяем наличие токена
+      if (!token) {
+        alert("Требуется авторизация. Пожалуйста, войдите в систему.");
+        throw new Error("No token available");
+      }
 
       try {
         // 1. Создаём место (без фото)

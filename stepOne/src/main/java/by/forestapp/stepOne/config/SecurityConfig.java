@@ -30,52 +30,42 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-
                 .authorizeHttpRequests(auth -> auth
-                        // 🆕 Публичные эндпоинты (БЕЗ авторизации) - должны быть ПЕРВЫМИ
+                        // 🆕 СНАЧАЛА все публичные эндпоинты (БЕЗ авторизации)
                         .requestMatchers("/api/auth/**").permitAll()
+
+                        // 🆕 Публичные GET-запросы (чтение без авторизации)
                         .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/mushroom-types/**").permitAll()
 
-                        // Админские эндпоинты
-                        .requestMatchers("/api/users/**").hasRole("ADMIN")
-                        .requestMatchers("/api/user/**").hasRole("USER")
+                        // 🆕 Swagger/API docs публично
+                        .requestMatchers("/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**").permitAll()
 
-                        // 🆕 Модификация мест только для авторизованных (переопределяем permitAll выше)
-                        .requestMatchers(HttpMethod.POST, "/api/places").hasAnyRole("USER" , "ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/places/**").hasAnyRole("USER" , "ADMIN")
+                        // 🆕 Ошибки публично (важно для обработки ошибок)
+                        .requestMatchers("/error").permitAll()
+
+                        // 🆕 Затем защищённые эндпоинты (модификация требует авторизации)
+                        .requestMatchers(HttpMethod.POST, "/api/places").hasAnyRole("USER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/places/**").hasAnyRole("USER", "ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/places/**").hasAnyRole("USER", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/places/*/images").hasAnyRole("USER", "ADMIN")
 
-                        // Все остальные запросы требуют авторизации
+                        // Админские эндпоинты
+                        .requestMatchers("/api/users/**").hasRole("ADMIN")
+
+                        // Пользовательские эндпоинты
+                        .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+
+                        // Всё остальное требует авторизации
                         .anyRequest().authenticated()
                 )
-
-                // 🔥 КЛЮЧЕВАЯ СТРОКА
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {

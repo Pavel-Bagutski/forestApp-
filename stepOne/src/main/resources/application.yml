@@ -1,3 +1,6 @@
+server:
+  port: 8080  # ← Явно указываем порт
+
 spring:
   application:
     name: stepOne
@@ -15,14 +18,13 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update  # ⚠️ Измени с 'update' на 'validate' при использовании Flyway
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
-  # 🆕 FLYWAY НАСТРОЙКИ
   flyway:
     enabled: false
     baseline-on-migrate: true
